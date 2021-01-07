@@ -4,38 +4,19 @@
 # 
 #This script will "call" all other scripts and check to ensure all files/ functions are present.
 
-##### Set Working Directory and Local CRS's----------
-wd<-"C:/Users/note2/Desktop/thesis2021/" #Should be located where all other files / functions are on system
+##### Set Working Directory and Initial Setup of Packages and CRS Projections----------
+wd<-dirname(rstudioapi::getSourceEditorContext()$path) #Should be located where all other files / functions are on system
 setwd(wd)
 
+source("Scripts/Parent_structure_check.R")
+source("Scripts/Setup.R")
 
-#####
-##### Initialize All Packages and Local CRS----------
-library(raster)
-library(plyr)
-library(dplyr)
-library(rgeos)
-library(rgdal)
-library(lidR)
-library(dbscan)
-library(grDevices)
-library(sp)
-library(approximator)
-library(mapview)
-library(ggplot2)
-library(ggpubr)
-library(grid)
-library(MeanShiftR) #this package requires you to install devtools to download off of github, but is not needed for you colin
-library(future)
+setup()
 
 AllFile_CRS<-6346 #NAD83_2011 UTM zone 17N epsg code
 NAD83_2011<-crs(paste0("+init=epsg:",AllFile_CRS))#creates CRS object with the Allfile epsg code
 SetCRS<-crs("+proj=utm +zone=17 +datum=NAD83 +units=m +no_defs ") #this is the projection used by the Smithsonian for their datasets
 
-
-#####
-##### Check Folder Structures / Etc. ----------
-source("Scripts/Parent_structure_check.R")
 
 #####
 ##### Preform Forest Geo Processing ----------
