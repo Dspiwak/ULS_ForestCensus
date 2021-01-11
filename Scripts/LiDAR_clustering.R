@@ -1,3 +1,14 @@
+generate_chunks<-function(lasdf,extent_shp){
+  chunk_size=sqrt(5000)
+  grdpnts<-makegrid(extent_shp,chunk_size)
+  spgrd<-SpatialPoints(grdpnts,proj4string = NAD83_2011)
+  spgrdWithin<-SpatialPixels(spgrd[extent_shp])
+  spgrdWithin<-as(spgrdWithin,"SpatialGrid")
+  #spgrdWithin<-as(spgrdWithin,"SpatialPolygons")
+  
+  return(spgrdWithin)
+}
+
 get.elbow.points.indices<-function(x,y,threshold){
   d1<-diff(y)/diff(x) #first derivative
   d2<-diff(d1)/diff(x[-1]) #second derivative
