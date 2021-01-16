@@ -42,8 +42,8 @@ las_process<-function(rawLASdirectory_name,lowersliceH,uppersliceH){
   for(i in 1:length(import.list)){
     import.list[[i]]<-as.data.frame(import.list[[i]]@data)
   }
-  lasdf<<-bind_rows(import.list)%>%
+  lasdf<-bind_rows(import.list)%>%
     dplyr::select(X,Y,Z)
-  
+
   return(lasdf)
 }

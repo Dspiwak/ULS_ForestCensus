@@ -1,12 +1,19 @@
-generate_chunks<-function(lasdf,extent_shp){
-  chunk_size=sqrt(5000)
-  grdpnts<-makegrid(extent_shp,chunk_size)
-  spgrd<-SpatialPoints(grdpnts,proj4string = NAD83_2011)
-  spgrdWithin<-SpatialPixels(spgrd[extent_shp])
-  spgrdWithin<-as(spgrdWithin,"SpatialGrid")
-  #spgrdWithin<-as(spgrdWithin,"SpatialPolygons")
+generate_chunks<-function(shp){
+  chunk_size=sqrt(5000) #current chunk size is .5ha -or- 1 acre (~size of initial testing area)
+  grdpnts<-makegrid(shp,cellsize=chunk_size) #makes a grid over the given shapefile but only contains "point" centers of the grids
   
-  return(spgrdWithin)
+  spgrd<-SpatialPoints(grdpnts,proj4string = NAD83_2011) %>% #converts into spatial points
+    SpatialPixels()%>% #generate chunks &clip
+    as("SpatialPolygons")%>%
+    gIntersection(shp,byid=TRUE)
+  
+  offset_grdpnts<-makegrid(shp,cellsize=chunk_size,offset=c(1,1))
+  offset_spgrd<-SpatialPoints(offset_grdpnts,proj4string = NAD83_2011) %>% #converts into spatial points
+    SpatialPixels()%>% #generate chunks &clip
+    as("SpatialPolygons")%>%
+    gIntersection(shp,byid=TRUE)
+  
+  #return(spgrd)
 }
 
 get.elbow.points.indices<-function(x,y,threshold){

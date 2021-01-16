@@ -40,6 +40,6 @@ Fullscan<-readOGR(paste0(getwd(),"/Raw_Data/FullScanExtent.shp")) #full extents 
 deerexclusion<-readOGR(paste0(getwd(),"/Raw_Data/deer_exclosure_2011.shp")) %>% #deer exclusion (~5ha.)
   spTransform(NAD83_2011)
 testarea<-readOGR(paste0(getwd(),"/Raw_Data/testarea.shp")) #test region where I "tuned" values and collected manual digitization (.5ha)
-clipregion<-testarea
+clipregion<-Fullscan
 Clipped.GTruth<-intersect(Clipped.GTruth,clipregion)
 Stem_Buff<-gBuffer(Clipped.GTruth,byid=TRUE,width=Clipped.GTruth$rbh_m) # data is in mm but conv to cm for radius buff
