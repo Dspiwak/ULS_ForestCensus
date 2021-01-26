@@ -6,8 +6,8 @@ library(shiny)
 library(magrittr)
 library(DT)
 library(rgdal)
-library(leaflet)
 library(rgeos)
+library(sf)
 
 
 
@@ -54,6 +54,7 @@ ui<-navbarPage(
                        '4'=4,
                        '5'=5)),
         actionButton('iterfeature','Next Convex Hull Feature'),
+        actionButton('inv_iterfeature','Previous Convex Hull Feature'),
         actionButton('nomatch','No Match Present, Skip Feature')
         ),
       #Main panel for displaying outputs----
@@ -80,45 +81,46 @@ server<-function(input,output,session){
     sliderValues() 
   })
   
-  epsg6346<-leafletCRS(
-    crsClass="L.Proj.CRS",
-    code="EPSG:6346",
-    proj4def="+proj=utm +zone=17 +datum=GRS80 +units=m +no_defs",
-    resolutions = 2^(16:7)
-  )
-  
-  #add data to table
-  # output$map<-renderLeaflet({
-  #   leaflet(options=leafletOptions(nowrap=TRUE, crs=epsg6346))%>%
-  #     addPolygons(data=chulldata,fill=TRUE,color='blue')%>%
-  #     addPolygons(data=testarea,fill=TRUE,color='red')
-  #   })
-  
-  
   featnum<-reactiveVal(0) #sets up a reactive variable to allow for iteratation through rows in DFs
   observeEvent(input$iterfeature,featnum(featnum()+1)) #iterates to next feature
+  observeEvent(input$inv_iterfeature,featnum(featnum()-1))
   observeEvent(input$nomatch,featnum(featnum()+1)) #skips feature if clicks no match present
+  
+  
+    #selectedfeat$featid<-selectedfeat$featcent$stemID
+  
   
   #Create a ggplot 'map' that plots the currently selected feature and ground truth w/ centroids
     output$map<-renderPlot({
       if(featnum()==0) return()
-      #input$map
       input$map
-      ggplot()+
+      map<-ggplot()+
         geom_sf(data=chulldata[featnum(),],fill='red')+
         geom_sf(data=gtruthdata,fill='blue')+
         geom_point(data=data.frame(gtruthcents),aes(x=data.frame(gtruthcents@coords)$x,y=data.frame(gtruthcents@coords)$y,colour='pink'))+
         coord_sf(datum=st_crs(chulldata))+ #sets projection of the ggplot graph
         xlim((st_bbox(chulldata[featnum(),])$xmin)-2,(st_bbox(chulldata[featnum(),])$xmax)+2)+ #edits the extents of the graph
         ylim((st_bbox(chulldata[featnum(),])$ymin)-2,(st_bbox(chulldata[featnum(),])$ymax)+2)
-      #plot(chulldata)
+      
+       if(!is.null(isolate(selectedfeat()))){
+         map=map+geom_point(data=isolate(selectedfeat()),aes(x=data.frame(selectedfeat())$x,y=data.frame(selectedfeat())$y),colour='green')}
+      map
     })
+
+    selectedfeat<-reactive(
+      nearPoints(data.frame(gtruthcents),input$click,xvar='x',yvar='y',maxpoints=1,threshold=20)) #detects closest centroid within 20 pixels
     
-    #ooga<-data.frame(sf::st_coordinates(chulldata))
+    nullcheck<-reactive(selectedfeat()$x!=""||selectedfeat()$y!="") #checks if a feature is clicked, and if it is then this changes to true
+    
     output$info<-renderText({
       #paste0(nearPoints(data.frame(chulldata),input$click,'centx','centy'))
-      paste0("Nearest Point :",nearPoints(data.frame(gtruthcents),input$click,xvar='x',yvar='y',maxpoints=1,threshold=20),"\nFeature # :",featnum())
+      
+      
+      paste0("Nearest Point : x=",selectedfeat()$x,' y=',selectedfeat()$y, #output window of information
+             "\nFeature # :",featnum(),
+             "\nNearest Point Null == ",nullcheck())
     })
+    
 }
 ####--------RUN APP-----------------------------------------
 shinyApp(ui,server)
