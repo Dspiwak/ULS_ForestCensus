@@ -1,19 +1,25 @@
-generate_chunks<-function(shp){
-  chunk_size=sqrt(5000) #current chunk size is .5ha -or- 1 acre (~size of initial testing area)
-  grdpnts<-makegrid(shp,cellsize=chunk_size) #makes a grid over the given shapefile but only contains "point" centers of the grids
+generate_chunks<-function(shp,chunk_size){
+ #chunk size of sqrt(5000) = .5ha or 1 acre
+
+  shp_buffer<-gBuffer(shp,width=chunk_size) #creates buffer which is needed to ensure a cell is created along edge when offset
+  
+  grdpnts<-makegrid(shp_buffer,cellsize=chunk_size) #makes a grid over the given shapefile but only contains "point" centers of the grids
   
   spgrd<-SpatialPoints(grdpnts,proj4string = NAD83_2011) %>% #converts into spatial points
     SpatialPixels()%>% #generate chunks &clip
-    as("SpatialPolygons")%>%
+    as("SpatialPolygons")
+  offset_spgrd<-elide(spgrd,shift=c(chunk_size/2,chunk_size/2))
+  
+  crs(offset_spgrd)<-crs(spgrd)
+  
+  chunks<-rbind(spgrd,offset_spgrd,makeUniqueIDs=TRUE) %>%
     gIntersection(shp,byid=TRUE)
   
-  offset_grdpnts<-makegrid(shp,cellsize=chunk_size,offset=c(1,1))
-  offset_spgrd<-SpatialPoints(offset_grdpnts,proj4string = NAD83_2011) %>% #converts into spatial points
-    SpatialPixels()%>% #generate chunks &clip
-    as("SpatialPolygons")%>%
-    gIntersection(shp,byid=TRUE)
+  plot(shp)
+  plot(chunks[1:(length(chunks)/2)],col=NA,add=TRUE)
+  plot(chunks[((length(chunks)/2)+1):length(chunks)],col=NA,border='red',add=TRUE)
   
-  #return(spgrd)
+  return(chunks)
 }
 
 get.elbow.points.indices<-function(x,y,threshold){
