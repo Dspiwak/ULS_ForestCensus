@@ -61,7 +61,8 @@ ui<-navbarPage(
       mainPanel(
         #Output: Table summarizing the values eneterd----
         plotOutput("map",click="click"),
-        verbatimTextOutput("info")
+        verbatimTextOutput("info"),
+        tableOutput("MatchedTreesTable")
         )
     )
 )
@@ -89,37 +90,66 @@ server<-function(input,output,session){
   
     #selectedfeat$featid<-selectedfeat$featcent$stemID
   
+  #create reactive groundpoints (to allow for highlighting)
+  gtruth<-reactiveValues(
+    buffs=rep(TRUE,nrow(gtruthdata))
+  )
+  
   
   #Create a ggplot 'map' that plots the currently selected feature and ground truth w/ centroids
     output$map<-renderPlot({
       if(featnum()==0) return()
       input$map
+      
+      allbuffs<-gtruthdata[gtruth$buffs,,drop=FALSE]
+      selectedbuffs<-gtruthdata[!gtruth$buffs,,drop=FALSE]
+      
+      
       map<-ggplot()+
         geom_sf(data=chulldata[featnum(),],fill='red')+
-        geom_sf(data=gtruthdata,fill='blue')+
+        geom_sf(data=allbuffs,fill='blue')+
+        geom_sf(data=selectedbuffs,fill='green')+
         geom_point(data=data.frame(gtruthcents),aes(x=data.frame(gtruthcents@coords)$x,y=data.frame(gtruthcents@coords)$y,colour='pink'))+
         coord_sf(datum=st_crs(chulldata))+ #sets projection of the ggplot graph
         xlim((st_bbox(chulldata[featnum(),])$xmin)-2,(st_bbox(chulldata[featnum(),])$xmax)+2)+ #edits the extents of the graph
         ylim((st_bbox(chulldata[featnum(),])$ymin)-2,(st_bbox(chulldata[featnum(),])$ymax)+2)
-      
-       if(!is.null(isolate(selectedfeat()))){
-         map=map+geom_point(data=isolate(selectedfeat()),aes(x=data.frame(selectedfeat())$x,y=data.frame(selectedfeat())$y),colour='green')}
       map
     })
 
-    selectedfeat<-reactive(
-      nearPoints(data.frame(gtruthcents),input$click,xvar='x',yvar='y',maxpoints=1,threshold=20)) #detects closest centroid within 20 pixels
+    observeEvent(input$click,{
+      res<-nearPoints(data.frame(gtruthcents),input$click,xvar='x',yvar='y',maxpoints=1,threshold=20,allRows=TRUE)
+      gtruth$buffs<-xor(gtruth$buffs,res$selected_)
+    })
     
-    nullcheck<-reactive(selectedfeat()$x!=""||selectedfeat()$y!="") #checks if a feature is clicked, and if it is then this changes to true
+    vals<-reactiveValues(
+      chulls=NULL,
+      truths=NULL
+    )
+    observe({
+      vals$chulls<-chulldata[featnum(),]$diam
+    })
+    observeEvent(input$click,{vals$truths<-gtruthdata[!gtruth$buffs,,drop=TRUE]$treeID})
+    
+    df<-reactiveValues()
+    df$dt<-data.frame(ID=as.numeric(),
+                      chulldiam=as.numeric())
+    
+    observeEvent(input$iterfeature,{
+      row<-data.frame(ID=vals$truths,
+                      chulldiam=vals$chulls)
+      df$dt<-rbind(df$dt,row)
+    })
+    
+    
     
     output$info<-renderText({
-      #paste0(nearPoints(data.frame(chulldata),input$click,'centx','centy'))
-      
-      
-      paste0("Nearest Point : x=",selectedfeat()$x,' y=',selectedfeat()$y, #output window of information
-             "\nFeature # :",featnum(),
-             "\nNearest Point Null == ",nullcheck())
+      paste0("Selected Tree ID : x=",gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID, #output window of information
+             "\nCurrent Chull Feature # :",featnum(),
+             "teststuff: ", vals$chulls,
+             "teststuff2: ",vals$truths)
     })
+    
+    output$"MatchedTreesTable"<-renderTable(df$dt)
     
 }
 ####--------RUN APP-----------------------------------------
