@@ -132,12 +132,17 @@ server<-function(input,output,session){
     
     df<-reactiveValues()
     df$dt<-data.frame(ID=as.numeric(),
-                      chulldiam=as.numeric())
+                      chulldiam=as.numeric(),
+                      iteration=as.numeric())
     
     observeEvent(input$iterfeature,{
-      row<-data.frame(ID=vals$truths,
-                      chulldiam=vals$chulls)
-      df$dt<-rbind(df$dt,row)
+      if(featnum()>1){
+        row<-data.frame(ID=vals$truths,
+                        chulldiam=vals$chulls,
+                        iteration=featnum())
+        df$dt<-rbind(df$dt,row)
+        df$dt<-df$dt[!duplicated(df$dt$iteration),]
+      }
     })
     
     
