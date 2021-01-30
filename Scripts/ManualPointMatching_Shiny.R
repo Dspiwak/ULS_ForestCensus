@@ -3,8 +3,8 @@ library(dplyr)
 library(raster)
 library(ggplot2)
 library(shiny)
-library(magrittr)
-library(DT)
+library(shinyjs)
+library(shinythemes)
 library(rgdal)
 library(rgeos)
 library(sf)
@@ -17,20 +17,20 @@ chulldata$centx<-NA
 chulldata$centy<-NA
 chulldata$tempid<-1:nrow(chulldata)
 for(i in 1:nrow(chulldata)){
-  chulldata$centx[[i]]<-as.numeric(data.frame(gCentroid(chulldata))$x)
-  chulldata$centy[[i]]<-as.numeric(data.frame(gCentroid(chulldata))$y)
+  chulldata$centx[[i]]<-as.numeric(data.frame(gCentroid(chulldata[i,])$x))
+  chulldata$centy[[i]]<-as.numeric(data.frame(gCentroid(chulldata[i,])$y))
 }
 chulldata<-st_as_sf(chulldata)
 gtruthdata<-readOGR("C:/Users/SUPER4/Desktop/FilesForColin/GroundTruth_DBH_StemBuffers - Copy.shp")%>%
   spTransform("+proj=utm +zone=17 +ellps=GRS80 +units=m +no_defs")
-gtruthcents<-gCentroid(gtruthdata,byid=TRUE)
 for(i in 1:length(gtruthcents)){
-  gtruthcents$xcoord[i]<-data.frame(gtruthcents[i])$x
-  gtruthcents$ycoord[i]<-data.frame(gtruthcents[i])$y
+  gtruthdata$centx[[i]]<-as.numeric(data.frame(gCentroid(gtruthdata[i,])$x))
+  gtruthdata$centy[[i]]<-as.numeric(data.frame(gCentroid(gtruthdata[i,])$y))
 }
 gtruthdata<-st_as_sf(gtruthdata)
 ####-------------UI-----------------------------------------------------------------------
-ui<-navbarPage(
+ui<-navbarPage(theme=shinytheme("darkly"),
+               fluid=TRUE,
   #Title for app----
   "Match The Convex Hull With The Respective Ground Truth 'Game'",
   
@@ -38,40 +38,63 @@ ui<-navbarPage(
   tabPanel("Load Data",
            
            #chull UI element
-           fileInput('shapefile','Choose LiDAR Convex Hulls',multiple=FALSE,accept="shp"),
+           fileInput('shapefile','Choose LiDAR Convex Hulls',multiple=TRUE,accept=c('.shp','.dbf','.sbn','sbx','shx','.prj')),
            fluidRow(column(4,verbatimTextOutput("chull_fname")))
   ),
   
   #create tab for matching stems game
   tabPanel("Match Stems",
+           fluidRow(
+             column(12,
+                    wellPanel(
+                      #Output: Table summarizing the values eneterd----
+                      plotOutput("map",click="click"),
+                      fluidRow(
+                        column(6,actionButton('inv_iterfeature','Previous Convex Hull Feature',position='right'),
+                               actionButton('iterfeature','Next Convex Hull Feature',position='left'),offset=6)),
+                      fluidRow(
+                        column(2,actionButton('nomatch','No Match Present, Skip Feature'),offset=4)),
+                      verbatimTextOutput("info")
+                      )
+                    )
+             ),
       #first sidebar panel----
-      sidebarPanel(
-        #create widget in first panel----
-        radioButtons("integer","Confidence:",
-                     c('1'=1,
-                       '2'=2,
-                       '3'=3,
-                       '4'=4,
-                       '5'=5)),
-        actionButton('iterfeature','Next Convex Hull Feature'),
-        actionButton('inv_iterfeature','Previous Convex Hull Feature'),
-        actionButton('nomatch','No Match Present, Skip Feature')
-        ),
-      #Main panel for displaying outputs----
-      mainPanel(
-        #Output: Table summarizing the values eneterd----
-        plotOutput("map",click="click"),
-        verbatimTextOutput("info"),
-        tableOutput("MatchedTreesTable"),
-        downloadButton('downloadData','Export Dataframe (.csv)')
+      fluidRow(
+        column(8,
+               wellPanel(
+                 #create widget in first panel----
+                 radioButtons("integer","Confidence:",
+                              c('1'=1,
+                                '2'=2,
+                                '3'=3,
+                                '4'=4,
+                                '5'=5)),
+                 tableOutput("MatchedTreesTable"),
+                 downloadButton('downloadData','Export Dataframe (.csv)'),
+                 useShinyjs()
+                 ),offset=2
+               )
         )
-    )
-)
+      )
+  )
 
 ####--------------SERVER-----------------------------------------------------------------
 
 server<-function(input,output,session){
-  #Reactive expression to create data frame of allinput values----
+  #Import and read shapefile
+  importfile<-reactive({
+    shpdf<-input$shapefile#store file name from local comp (which has been renamed by shiny)
+    tempdir<-dirname(shpdf$datapath[1])#extract the relative pathname from the file
+    for(i in 1:nrow(shpdf)){
+      file.rename(
+        shpdf$datapath[i],
+        paste0(tempdir,"/",shpdf$name[i]))
+    }
+    importfile<-readOGR(paste(tempdir,shpdf$name[grep(pattern="*.shp$",shpdf$name)],sep='/'))%>%
+      st_as_sf()
+  })
+  
+  #Create 'confidence' table to allow user to enter in confidence value----
   sliderValues<-reactive({
     data.frame(Name=c("Confidence"),
                Value=as.character(c(input$integer)),
@@ -84,10 +107,12 @@ server<-function(input,output,session){
   })
   
   featnum<-reactiveVal(0) #sets up a reactive variable to allow for iteratation through rows in DFs
-  observeEvent(input$iterfeature,featnum(featnum()+1)) #iterates to next feature
+  observeEvent(input$iterfeature,{
+    featnum(featnum()+1)#iterates to next feature
+    res<-NULL}) 
   observeEvent(input$inv_iterfeature,{
-               featnum(featnum()-1)
-               df$dt<-df$dt[-nrow(df$dt),]})#iterates backwards
+    featnum(featnum()-1)#iterates backwards
+    df$dt<-df$dt[-nrow(df$dt),]})
   observeEvent(input$nomatch,featnum(featnum()+1)) #skips feature if clicks no match present
   
   
@@ -112,17 +137,20 @@ server<-function(input,output,session){
         geom_sf(data=chulldata[featnum(),],fill='red')+#add layer for convex hulls
         geom_sf(data=allbuffs,fill='blue')+#add layer for gtruth buffers
         geom_sf(data=selectedbuffs,fill='green')+#add layer for highlighted (selected) gtruth buffers
-        geom_point(data=data.frame(gtruthcents),aes(x=data.frame(gtruthcents@coords)$x,y=data.frame(gtruthcents@coords)$y,colour='pink'))+ #plots centroid (must be clicking within 20pixels of this feature to "match" the gtruth)
+        geom_sf(data=importfile(),fill='purple')+
+        #geom_point(data=data.frame(gtruthdata),aes(x=gtruthdata$NADY,y=gtruthdata$NADY,colour='pink'))+ #plots centroid (must be clicking within 20pixels of this feature to "match" the gtruth)
         coord_sf(datum=st_crs(chulldata), #sets projection of the ggplot graph
           xlim=c((st_bbox(chulldata[featnum(),])$xmin)-2,(st_bbox(chulldata[featnum(),])$xmax)+2), #edits the extents of the graph
           ylim=c((st_bbox(chulldata[featnum(),])$ymin)-2,(st_bbox(chulldata[featnum(),])$ymax)+2))
+        
       map
     })
 
     observeEvent(input$click,{ #When clicking on a feature
-      res<-nearPoints(data.frame(gtruthcents),input$click,xvar='x',yvar='y',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
+      res<-nearPoints(data.frame(gtruthdata),input$click,xvar='NADX',yvar='NADY',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
+      gtruth$buffs<-rep(TRUE,nrow(gtruthdata))
       gtruth$buffs<-xor(gtruth$buffs,res$selected_)#then subset the gtruth data based on this selected centroid
-    })
+      })
     
     
     
@@ -161,7 +189,8 @@ server<-function(input,output,session){
                         Confidence=sliderValues(),
                         iteration=featnum())
         df$dt<-rbind(df$dt,row) #binds the row to reactive dataframe
-        df$dt<-df$dt[!duplicated(df$dt$iteration),]#removes "duplicate rows"  that are created during this process to ensure only 1 iteration writes 1 row
+        df$dt<-df$dt[!duplicated(df$dt$iteration),]
+        #removes "duplicate rows"  that are created during this process to ensure only 1 iteration writes 1 row
       }
     })
     
@@ -170,8 +199,8 @@ server<-function(input,output,session){
     output$info<-renderText({ #output general text for testing purposes primarily
       paste0("Selected Tree ID : x=",gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID, #output window of information
              "\nCurrent Chull Feature # :",featnum(),
-             "\nteststuff: ", vals$chulls$tempid,
-             "\nteststuff2: ",vals$truths$treeID)
+             "\nteststuff: ",shinyjs::logjs(gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID),
+             "\nteststuff2: ")#shinyjs::logjs(gtruth$buffs))
     })
     
     output$downloadData<-downloadHandler(
@@ -182,7 +211,10 @@ server<-function(input,output,session){
         })
     
     output$"MatchedTreesTable"<-renderTable(df$dt) #display the dataframe being built (this will be re-rendered and updated at each iteration)
+   
+    #shinyjs::logjs(res()) 
     
 }
+
 ####--------RUN APP-----------------------------------------
 shinyApp(ui,server)
