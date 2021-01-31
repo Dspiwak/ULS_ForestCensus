@@ -21,25 +21,18 @@ for(i in 1:nrow(chulldata)){
   chulldata$centy[[i]]<-as.numeric(data.frame(gCentroid(chulldata[i,])$y))
 }
 chulldata<-st_as_sf(chulldata)
-gtruthdata<-readOGR("C:/Users/SUPER4/Desktop/FilesForColin/GroundTruth_DBH_StemBuffers - Copy.shp")%>%
-  spTransform("+proj=utm +zone=17 +ellps=GRS80 +units=m +no_defs")
-for(i in 1:length(gtruthcents)){
-  gtruthdata$centx[[i]]<-as.numeric(data.frame(gCentroid(gtruthdata[i,])$x))
-  gtruthdata$centy[[i]]<-as.numeric(data.frame(gCentroid(gtruthdata[i,])$y))
-}
-gtruthdata<-st_as_sf(gtruthdata)
 ####-------------UI-----------------------------------------------------------------------
 ui<-navbarPage(theme=shinytheme("darkly"),
                fluid=TRUE,
-  #Title for app----
+  #Title for app--
   "Match The Convex Hull With The Respective Ground Truth 'Game'",
   
   #create second tab in UI for data initialization
   tabPanel("Load Data",
            
            #chull UI element
-           fileInput('shapefile','Choose LiDAR Convex Hulls',multiple=TRUE,accept=c('.shp','.dbf','.sbn','sbx','shx','.prj')),
-           fluidRow(column(4,verbatimTextOutput("chull_fname")))
+           fileInput('LiDAR_Reconstructions_Data','Choose LiDAR Convex Hull Shapefile',multiple=TRUE,accept=c('.shp','.dbf','.sbn','sbx','shx','.prj')),
+           fileInput('Ground_Truths_Data','Choose Ground Truth Data Shapefile',multiple=TRUE,accept=c('.shp','.dbf','.sbn','sbx','shx','.prj'))
   ),
   
   #create tab for matching stems game
@@ -47,7 +40,7 @@ ui<-navbarPage(theme=shinytheme("darkly"),
            fluidRow(
              column(12,
                     wellPanel(
-                      #Output: Table summarizing the values eneterd----
+                      #Output: Table summarizing the values eneterd--
                       plotOutput("map",click="click"),
                       fluidRow(
                         column(6,actionButton('inv_iterfeature','Previous Convex Hull Feature',position='right'),
@@ -58,11 +51,11 @@ ui<-navbarPage(theme=shinytheme("darkly"),
                       )
                     )
              ),
-      #first sidebar panel----
+      #first sidebar panel--
       fluidRow(
         column(8,
                wellPanel(
-                 #create widget in first panel----
+                 #create widget in first panel--
                  radioButtons("integer","Confidence:",
                               c('1'=1,
                                 '2'=2,
@@ -83,16 +76,30 @@ ui<-navbarPage(theme=shinytheme("darkly"),
 server<-function(input,output,session){
   #Import and read shapefile
   importfile<-reactive({
-    shpdf<-input$shapefile#store file name from local comp (which has been renamed by shiny)
+    shpdf<-input$LiDAR_Reconstructions_Data#store file name from local comp (which has been renamed by shiny)
     tempdir<-dirname(shpdf$datapath[1])#extract the relative pathname from the file
     for(i in 1:nrow(shpdf)){
       file.rename(
         shpdf$datapath[i],
-        paste0(tempdir,"/",shpdf$name[i]))
+        paste0(tempdir,'/',shpdf$name[i]))
     }
     importfile<-readOGR(paste(tempdir,shpdf$name[grep(pattern="*.shp$",shpdf$name)],sep='/'))%>%
       st_as_sf()
   })
+  
+  importfile2<-reactive({
+    shpdf<-input$Ground_Truths_Data
+    tempdir<-dirname(shpdf$datapath[1])
+    for(i in 1:nrow(shpdf)){
+      file.rename(
+        shpdf$datapath[i],
+        paste0(tempdir,'/',shpdf$name[i]))
+    }
+    importfile2<-readOGR(paste(tempdir,shpdf$name[grep(pattern='*.shp',shpdf$name)],sep='/'))%>%
+      st_as_sf()
+  })
+
+  
   
   #Create 'confidence' table to allow user to enter in confidence value----
   sliderValues<-reactive({
@@ -115,29 +122,27 @@ server<-function(input,output,session){
     df$dt<-df$dt[-nrow(df$dt),]})
   observeEvent(input$nomatch,featnum(featnum()+1)) #skips feature if clicks no match present
   
-  
-    #selectedfeat$featid<-selectedfeat$featcent$stemID
-  
   #create reactive groundpoints (to allow for highlighting)
-  gtruth<-reactiveValues(
-    buffs=rep(TRUE,nrow(gtruthdata))
-  )
+   gtruth<-observeEvent(input$Ground_Truths_Data,
+     gtruth$buffs<-rep(TRUE,nrow(importfile2()))
+   )
   
-  
+  gtruth<-reactiveValues(buffs=NULL)
+   
   #Create a ggplot 'map' that plots the currently selected feature and ground truth w/ centroids
     output$map<-renderPlot({
       if(featnum()==0) return()#will not display a "map" on first iteration where no features exist
       input$map
+    
       
-      allbuffs<-gtruthdata[gtruth$buffs,,drop=FALSE]#stores within current widget all available gtruth buffers
-      selectedbuffs<-gtruthdata[!gtruth$buffs,,drop=FALSE]#stores within current widget all subsetted gtruth buffers
+      allbuffs<-importfile2()[gtruth$buffs,,drop=FALSE]#stores within current widget all available gtruth buffers
+      selectedbuffs<-importfile2()[!gtruth$buffs,,drop=FALSE]#stores within current widget all subsetted gtruth buffers
       
       
       map<-ggplot()+
         geom_sf(data=chulldata[featnum(),],fill='red')+#add layer for convex hulls
         geom_sf(data=allbuffs,fill='blue')+#add layer for gtruth buffers
         geom_sf(data=selectedbuffs,fill='green')+#add layer for highlighted (selected) gtruth buffers
-        geom_sf(data=importfile(),fill='purple')+
         #geom_point(data=data.frame(gtruthdata),aes(x=gtruthdata$NADY,y=gtruthdata$NADY,colour='pink'))+ #plots centroid (must be clicking within 20pixels of this feature to "match" the gtruth)
         coord_sf(datum=st_crs(chulldata), #sets projection of the ggplot graph
           xlim=c((st_bbox(chulldata[featnum(),])$xmin)-2,(st_bbox(chulldata[featnum(),])$xmax)+2), #edits the extents of the graph
@@ -147,8 +152,8 @@ server<-function(input,output,session){
     })
 
     observeEvent(input$click,{ #When clicking on a feature
-      res<-nearPoints(data.frame(gtruthdata),input$click,xvar='NADX',yvar='NADY',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
-      gtruth$buffs<-rep(TRUE,nrow(gtruthdata))
+      res<-nearPoints(data.frame(importfile2()),input$click,xvar='NADX',yvar='NADY',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
+      gtruth$buffs<-rep(TRUE,base::nrow(importfile2()))
       gtruth$buffs<-xor(gtruth$buffs,res$selected_)#then subset the gtruth data based on this selected centroid
       })
     
@@ -162,7 +167,7 @@ server<-function(input,output,session){
     observe({
       vals$chulls<-chulldata[featnum(),]#Makes the reactive chulls values under vals= to the subset of the dataframe based on the current iteration being displayed
     })
-    observeEvent(input$click,{vals$truths<-gtruthdata[!gtruth$buffs,,drop=TRUE]})#based on a clicked stem, assign the clicked stem (as a subset from the ground truth) to the reactive value under vals
+    observeEvent(input$click,{vals$truths<-importfile2()[!gtruth$buffs,,drop=TRUE]})#based on a clicked stem, assign the clicked stem (as a subset from the ground truth) to the reactive value under vals
     
     df<-reactiveValues() #makes a reactive dataframe to store values during matching process
     df$dt<-data.frame(Gtruth_ID=as.numeric(),
@@ -197,10 +202,10 @@ server<-function(input,output,session){
     
     
     output$info<-renderText({ #output general text for testing purposes primarily
-      paste0("Selected Tree ID : x=",gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID, #output window of information
+      paste0("Selected Tree ID : x=",#gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID, #output window of information
              "\nCurrent Chull Feature # :",featnum(),
-             "\nteststuff: ",shinyjs::logjs(gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID),
-             "\nteststuff2: ")#shinyjs::logjs(gtruth$buffs))
+             "\nteststuff: ",#shinyjs::logjs(gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID),
+             "\nteststuff2: ",nrow(importfile2()))
     })
     
     output$downloadData<-downloadHandler(
