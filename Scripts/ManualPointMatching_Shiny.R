@@ -9,18 +9,6 @@ library(rgdal)
 library(rgeos)
 library(sf)
 
-
-#perform initial preprocessing of shapefiles to be loaded into app (hardcoded)
-chulldata<-readOGR("C:/Users/SUPER4/Desktop/FilesForColin/Calculated_Chulls.shp") %>%
-  spTransform("+proj=utm +zone=17 +ellps=GRS80 +units=m +no_defs")
-chulldata$centx<-NA
-chulldata$centy<-NA
-chulldata$tempid<-1:nrow(chulldata)
-for(i in 1:nrow(chulldata)){
-  chulldata$centx[[i]]<-as.numeric(data.frame(gCentroid(chulldata[i,])$x))
-  chulldata$centy[[i]]<-as.numeric(data.frame(gCentroid(chulldata[i,])$y))
-}
-chulldata<-st_as_sf(chulldata)
 ####-------------UI-----------------------------------------------------------------------
 ui<-navbarPage(theme=shinytheme("darkly"),
                fluid=TRUE,
@@ -31,7 +19,7 @@ ui<-navbarPage(theme=shinytheme("darkly"),
   tabPanel("Load Data",
            
            #chull UI element
-           fileInput('LiDAR_Reconstructions_Data','Choose LiDAR Convex Hull Shapefile',multiple=TRUE,accept=c('.shp','.dbf','.sbn','sbx','shx','.prj')),
+           fileInput('LiDAR_Data','Choose LiDAR Convex Hull Shapefile',multiple=TRUE,accept=c('.shp','.dbf','.sbn','sbx','shx','.prj')),
            fileInput('Ground_Truths_Data','Choose Ground Truth Data Shapefile',multiple=TRUE,accept=c('.shp','.dbf','.sbn','sbx','shx','.prj'))
   ),
   
@@ -74,20 +62,22 @@ ui<-navbarPage(theme=shinytheme("darkly"),
 ####--------------SERVER-----------------------------------------------------------------
 
 server<-function(input,output,session){
-  #Import and read shapefile
-  importfile<-reactive({
-    shpdf<-input$LiDAR_Reconstructions_Data#store file name from local comp (which has been renamed by shiny)
-    tempdir<-dirname(shpdf$datapath[1])#extract the relative pathname from the file
+  data<-reactiveValues(importfile=NULL,importfile2=NULL)
+  
+  observeEvent(input$LiDAR_Data,{
+    shpdf<-input$LiDAR_Data
+    tempdir<-dirname(shpdf$datapath[1])
     for(i in 1:nrow(shpdf)){
       file.rename(
         shpdf$datapath[i],
         paste0(tempdir,'/',shpdf$name[i]))
     }
-    importfile<-readOGR(paste(tempdir,shpdf$name[grep(pattern="*.shp$",shpdf$name)],sep='/'))%>%
-      st_as_sf()
+    data[['importfile']]<-readOGR(paste(tempdir,shpdf$name[grep(pattern='*.shp',shpdf$name)],sep='/'))%>%
+      spTransform("+proj=utm +zone=17 +ellps=GRS80 +units=m +no_defs")
+    data[['importfile']]$tempid<-1:nrow(data[['importfile']])
+    data[['importfile']]<-st_as_sf(data[['importfile']])
   })
-  
-  importfile2<-reactive({
+  observeEvent(input$Ground_Truths_Data,{
     shpdf<-input$Ground_Truths_Data
     tempdir<-dirname(shpdf$datapath[1])
     for(i in 1:nrow(shpdf)){
@@ -95,11 +85,10 @@ server<-function(input,output,session){
         shpdf$datapath[i],
         paste0(tempdir,'/',shpdf$name[i]))
     }
-    importfile2<-readOGR(paste(tempdir,shpdf$name[grep(pattern='*.shp',shpdf$name)],sep='/'))%>%
+    data[['importfile2']]<-readOGR(paste(tempdir,shpdf$name[grep(pattern='*.shp',shpdf$name)],sep='/'))%>%
+      spTransform("+proj=utm +zone=17 +ellps=GRS80 +units=m +no_defs")%>%
       st_as_sf()
   })
-
-  
   
   #Create 'confidence' table to allow user to enter in confidence value----
   sliderValues<-reactive({
@@ -124,7 +113,7 @@ server<-function(input,output,session){
   
   #create reactive groundpoints (to allow for highlighting)
    gtruth<-observeEvent(input$Ground_Truths_Data,
-     gtruth$buffs<-rep(TRUE,nrow(importfile2()))
+     gtruth$buffs<-rep(TRUE,nrow(data$importfile2))
    )
   
   gtruth<-reactiveValues(buffs=NULL)
@@ -135,29 +124,27 @@ server<-function(input,output,session){
       input$map
     
       
-      allbuffs<-importfile2()[gtruth$buffs,,drop=FALSE]#stores within current widget all available gtruth buffers
-      selectedbuffs<-importfile2()[!gtruth$buffs,,drop=FALSE]#stores within current widget all subsetted gtruth buffers
+      allbuffs<-data$importfile2[gtruth$buffs,,drop=FALSE]#stores within current widget all available gtruth buffers
+      selectedbuffs<-data$importfile2[!gtruth$buffs,,drop=FALSE]#stores within current widget all subsetted gtruth buffers
       
       
       map<-ggplot()+
-        geom_sf(data=chulldata[featnum(),],fill='red')+#add layer for convex hulls
+        geom_sf(data=data$importfile[featnum(),],fill='red')+#add layer for convex hulls
         geom_sf(data=allbuffs,fill='blue')+#add layer for gtruth buffers
         geom_sf(data=selectedbuffs,fill='green')+#add layer for highlighted (selected) gtruth buffers
         #geom_point(data=data.frame(gtruthdata),aes(x=gtruthdata$NADY,y=gtruthdata$NADY,colour='pink'))+ #plots centroid (must be clicking within 20pixels of this feature to "match" the gtruth)
-        coord_sf(datum=st_crs(chulldata), #sets projection of the ggplot graph
-          xlim=c((st_bbox(chulldata[featnum(),])$xmin)-2,(st_bbox(chulldata[featnum(),])$xmax)+2), #edits the extents of the graph
-          ylim=c((st_bbox(chulldata[featnum(),])$ymin)-2,(st_bbox(chulldata[featnum(),])$ymax)+2))
+        coord_sf(datum=st_crs(data$importfile), #sets projection of the ggplot graph
+          xlim=c((st_bbox(data$importfile[featnum(),])$xmin)-2,(st_bbox(data$importfile[featnum(),])$xmax)+2), #edits the extents of the graph
+          ylim=c((st_bbox(data$importfile[featnum(),])$ymin)-2,(st_bbox(data$importfile[featnum(),])$ymax)+2))
         
       map
     })
 
     observeEvent(input$click,{ #When clicking on a feature
-      res<-nearPoints(data.frame(importfile2()),input$click,xvar='NADX',yvar='NADY',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
-      gtruth$buffs<-rep(TRUE,base::nrow(importfile2()))
+      res<-nearPoints(data.frame(data$importfile2),input$click,xvar='NADX',yvar='NADY',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
+      gtruth$buffs<-rep(TRUE,base::nrow(data$importfile2))
       gtruth$buffs<-xor(gtruth$buffs,res$selected_)#then subset the gtruth data based on this selected centroid
       })
-    
-    
     
     #Build dataframe based off of clicked ground truth stems
     vals<-reactiveValues(
@@ -165,9 +152,9 @@ server<-function(input,output,session){
       truths=NULL
     )
     observe({
-      vals$chulls<-chulldata[featnum(),]#Makes the reactive chulls values under vals= to the subset of the dataframe based on the current iteration being displayed
+      vals$chulls<-data$importfile[featnum(),]#Makes the reactive chulls values under vals= to the subset of the dataframe based on the current iteration being displayed
     })
-    observeEvent(input$click,{vals$truths<-importfile2()[!gtruth$buffs,,drop=TRUE]})#based on a clicked stem, assign the clicked stem (as a subset from the ground truth) to the reactive value under vals
+    observeEvent(input$click,{vals$truths<-data$importfile2[!gtruth$buffs,,drop=TRUE]})#based on a clicked stem, assign the clicked stem (as a subset from the ground truth) to the reactive value under vals
     
     df<-reactiveValues() #makes a reactive dataframe to store values during matching process
     df$dt<-data.frame(Gtruth_ID=as.numeric(),
@@ -176,8 +163,6 @@ server<-function(input,output,session){
                       Gtruth_NADX=as.numeric(),
                       GTRUTHNADY=as.numeric(),
                       Chull_diam=as.numeric(),
-                      Chull_centx=as.numeric(),
-                      Chull_centy=as.numeric(),
                       Confidence=as.integer(),
                       iteration=as.numeric())
     
@@ -189,8 +174,6 @@ server<-function(input,output,session){
                         Gtruth_NADX=vals$truths$NADX,
                         Gtruth_NADY=vals$truths$NADY,
                         Chull_diam=vals$chulls$diam,
-                        Chull_centx=vals$chulls$centx,
-                        Chull_centy=vals$chulls$centy,
                         Confidence=sliderValues(),
                         iteration=featnum())
         df$dt<-rbind(df$dt,row) #binds the row to reactive dataframe
@@ -199,13 +182,11 @@ server<-function(input,output,session){
       }
     })
     
-    
-    
     output$info<-renderText({ #output general text for testing purposes primarily
       paste0("Selected Tree ID : x=",#gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID, #output window of information
              "\nCurrent Chull Feature # :",featnum(),
-             "\nteststuff: ",#shinyjs::logjs(gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID),
-             "\nteststuff2: ",nrow(importfile2()))
+             "\nteststuff: ",vals$truths,
+             "\nteststuff2: ",vals$chulls)
     })
     
     output$downloadData<-downloadHandler(
@@ -216,10 +197,14 @@ server<-function(input,output,session){
         })
     
     output$"MatchedTreesTable"<-renderTable(df$dt) #display the dataframe being built (this will be re-rendered and updated at each iteration)
-   
-    #shinyjs::logjs(res()) 
-    
 }
 
 ####--------RUN APP-----------------------------------------
 shinyApp(ui,server)
+
+exts<-c("C:","Users","SUPER4","Desktop","Apt_APP.pdf")
+temp<-paste0(exts,"\\")%>%
+  paste(collapse='')
+temp<-gsub('\\','/',temp,fixed=TRUE)
+temp<-temp[[1]][1:length(temp[[1]])-1]%>%
+  paste(collapse="/")
