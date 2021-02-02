@@ -107,8 +107,17 @@ server<-function(input,output,session){
     featnum(featnum()+1)#iterates to next feature
     res<-NULL}) 
   observeEvent(input$inv_iterfeature,{
-    featnum(featnum()-1)#iterates backwards
-    df$dt<-df$dt[-nrow(df$dt),]})
+    if(featnum()-1>0){
+      featnum(featnum()-1)#iterates backwards
+      if(df$dt$iteration[featnum()]==featnum() && featnum()>1 && nrow(df$dt)>1){
+        df$dt<-df$dt[-nrow(df$dt),]
+      }
+      else({
+        df$dt[1,]<-NA
+      })
+    }
+    else(return())
+    })
   observeEvent(input$nomatch,featnum(featnum()+1)) #skips feature if clicks no match present
   
   #create reactive groundpoints (to allow for highlighting)
@@ -167,7 +176,7 @@ server<-function(input,output,session){
                       iteration=as.numeric())
     
     observeEvent(input$iterfeature,{#When the iterfeature button is clicked, and if it is not the first "iteration" (no data present) it will write subsetted reactive data to this row in the dataframe
-      if(featnum()>1){
+      if(featnum()>1 && !is.null(vals$truths)){
         row<-data.frame(Gtruth_ID=vals$truths$treeID,#builds row
                         Gtruth_SP=vals$truths$sp,
                         Gtruth_dbh_cm=vals$truths$dbh_cm,
@@ -185,8 +194,8 @@ server<-function(input,output,session){
     output$info<-renderText({ #output general text for testing purposes primarily
       paste0("Selected Tree ID : x=",#gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID, #output window of information
              "\nCurrent Chull Feature # :",featnum(),
-             "\nteststuff: ",vals$truths,
-             "\nteststuff2: ",vals$chulls)
+             "\nteststuff: ",df$dt$iteration[featnum()-1],
+             "\nteststuff2: ")
     })
     
     output$downloadData<-downloadHandler(
@@ -198,6 +207,7 @@ server<-function(input,output,session){
     
     output$"MatchedTreesTable"<-renderTable(df$dt) #display the dataframe being built (this will be re-rendered and updated at each iteration)
 }
+
 
 ####--------RUN APP-----------------------------------------
 shinyApp(ui,server)
