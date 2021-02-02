@@ -109,7 +109,7 @@ server<-function(input,output,session){
   observeEvent(input$inv_iterfeature,{
     if(featnum()-1>0){
       featnum(featnum()-1)#iterates backwards
-      if(df$dt$iteration[featnum()]==featnum() && featnum()>1 && nrow(df$dt)>1){
+      if(df$dt$iteration[featnum()]==featnum() && featnum()>1 && nrow(df$dt)>1 && featnum()%in%(df$dt$iteration)){
         df$dt<-df$dt[-nrow(df$dt),]
       }
       else({
@@ -170,7 +170,7 @@ server<-function(input,output,session){
                       Gtruth_SP=as.character(),
                       Gtruth_dbh_cm=as.numeric(),
                       Gtruth_NADX=as.numeric(),
-                      GTRUTHNADY=as.numeric(),
+                      GTRUTH_NADY=as.numeric(),
                       Chull_diam=as.numeric(),
                       Confidence=as.integer(),
                       iteration=as.numeric())
@@ -194,7 +194,7 @@ server<-function(input,output,session){
     output$info<-renderText({ #output general text for testing purposes primarily
       paste0("Selected Tree ID : x=",#gtruthdata[!gtruth$buffs,,drop=FALSE]$treeID, #output window of information
              "\nCurrent Chull Feature # :",featnum(),
-             "\nteststuff: ",df$dt$iteration[featnum()-1],
+             "\nteststuff: ",featnum()%in%df$dt$iteration,
              "\nteststuff2: ")
     })
     
