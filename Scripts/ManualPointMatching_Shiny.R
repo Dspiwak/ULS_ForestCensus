@@ -42,8 +42,10 @@ ui<-navbarPage(theme=shinytheme("darkly"),
                     column(1,actionButton('iterfeature','Next Convex Hull Feature ---->>'),position='left',offset=1)),
                   fluidRow(
                     column(1,actionButton('nomatch','No Match Present (Skip)'),offset=5)),
-                        verbatimTextOutput("info")
-                      )
+                  fluidRow(
+                    column(2,verbatimTextOutput("info"),offset=5)
+                    )
+                  )
              ),
       #first sidebar panel--
       fluidRow(
@@ -98,6 +100,8 @@ server<-function(input,output,session){
   #Feature Iteration Controls----
   featnum<-reactiveVal(0) #sets up a reactive variable to allow for iteratation through rows in DFs
   observeEvent(input$iterfeature,{
+    shinyjs::logjs(is.null(df$dt$iteration[featnum()]))
+    shinyjs::logjs(is.null(df$dt$iteration[featnum()-1]))
     if(is.null(vals$truths)){
       if(featnum()>0){
         df$dt[featnum(),]<-rbind(NA)
@@ -109,10 +113,11 @@ server<-function(input,output,session){
   observeEvent(input$inv_iterfeature,{
     if(featnum()-1>0){
       featnum(featnum()-1)#iterates backwards
-      if(df$dt$iteration[featnum()]==featnum() && featnum()>1 && nrow(df$dt)>1 && featnum()%in%(df$dt$iteration)){
-        df$dt<-df$dt[-nrow(df$dt),]
-      }
-      else(df$dt[featnum(),]<-NA)
+      tryCatch(silent=TRUE,{
+        if(df$dt$iteration[featnum()]==featnum() && featnum()>1 && nrow(df$dt)>1 && featnum()%in%(df$dt$iteration)){
+          df$dt<-df$dt[-nrow(df$dt),]
+        }
+        },error=function(e){return()})
     }
     else(return())
     })
@@ -190,7 +195,7 @@ server<-function(input,output,session){
                         Gtruth_NADX=vals$truths$NADX,
                         Gtruth_NADY=vals$truths$NADY,
                         Chull_diam=vals$chulls$diam,
-                        Confidence=sliderValues(),
+                        Confidence=sliderValues()$Value,
                         iteration=featnum()-1)
         df$dt<-rbind(df$dt,row) #binds the row to reactive dataframe
         df$dt<-df$dt[!duplicated(df$dt$iteration),]#removes "duplicate rows"  that are created during this process to ensure only 1 iteration writes 1 row
@@ -202,9 +207,8 @@ server<-function(input,output,session){
     
     #Misc. tools / features----
     output$info<-renderText({ #output general text for testing purposes primarily
-      paste0("Selected Tree ID : x= ",data$importfile2[!vals$buffs,,drop=FALSE]$treeID) #output window of information
-      paste0("Current Chull Iteration# :",featnum())
-      shinyjs::logjs(isTRUE(df$dt$iteration[featnum()]==featnum() && featnum()>1 && nrow(df$dt)>1 && featnum()%in%(df$dt$iteration)))
+      paste0("Selected Tree ID : x= ",data$importfile2[!vals$buffs,,drop=FALSE]$treeID,
+             "\nCurrent Chull Iteration# :",featnum())
     })
     
     output$downloadData<-downloadHandler(
