@@ -100,27 +100,24 @@ server<-function(input,output,session){
   #Feature Iteration Controls----
   featnum<-reactiveVal(0) #sets up a reactive variable to allow for iteratation through rows in DFs
   observeEvent(input$iterfeature,{
-    shinyjs::logjs(is.null(df$dt$iteration[featnum()]))
-    shinyjs::logjs(is.null(df$dt$iteration[featnum()-1]))
-    if(is.null(vals$truths)){
-      if(featnum()>0){
-        df$dt[featnum(),]<-rbind(NA)
-      }
-      featnum(featnum()+1)#iterates to next feature
-    }
-    else(featnum(featnum()+1))
-      }) 
+    featnum(featnum()+1)
+    })
+ 
   observeEvent(input$inv_iterfeature,{
     if(featnum()-1>0){
       featnum(featnum()-1)#iterates backwards
       tryCatch(silent=TRUE,{
-        if(df$dt$iteration[featnum()]==featnum() && featnum()>1 && nrow(df$dt)>1 && featnum()%in%(df$dt$iteration)){
-          df$dt<-df$dt[-nrow(df$dt),]
+        if(featnum()%in%(df$dt$iteration)){
+          if(featnum()-1==0){
+            df$dt[1,]<-rbind(NA)
+          }
+          else(df$dt<-df$dt[-nrow(df$dt[featnum()]),])
         }
         },error=function(e){return()})
     }
     else(return())
     })
+  
   observeEvent(input$nomatch,featnum(featnum()+1)) #skips feature if clicks no match present
   
   #Create 'confidence' table to allow user to enter in confidence value
@@ -169,9 +166,9 @@ server<-function(input,output,session){
 
     #Plot Interaction Controls----
     observeEvent(input$click,{ #When clicking on a feature
-      res<-nearPoints(data.frame(data$importfile2),input$click,xvar='NADX',yvar='NADY',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
+      clickedbuffs<-nearPoints(data.frame(data$importfile2),input$click,xvar='NADX',yvar='NADY',maxpoints=1,threshold=20,allRows=TRUE)#detect a centerpoint of a gtruth buffer within 20 pixels
       vals$buffs<-rep(TRUE,base::nrow(data$importfile2))
-      vals$buffs<-xor(vals$buffs,res$selected_)#then subset the gtruth data based on this selected centroid
+      vals$buffs<-xor(vals$buffs,clickedbuffs$selected_)#then subset the gtruth data based on this selected centroid
       vals$chulls<-data$importfile[featnum(),]#Makes the reactive chulls values under vals= to the subset of the dataframe based on the current iteration being displayed
       vals$truths<-data$importfile2[!vals$buffs,,drop=TRUE]#based on a clicked stem, assign the clicked stem (as a subset from the ground truth) to the reactive value under vals
       })
@@ -188,7 +185,7 @@ server<-function(input,output,session){
                       iteration=as.numeric())
     
     observeEvent(input$iterfeature,{#When the iterfeature button is clicked, and if it is not the first "iteration" (no data present) it will write subsetted reactive data to this row in the dataframe
-      if(featnum()>1 && !is.null(vals$truths)){
+      try({if(featnum()>1 && !is.na(vals$truths$treeID)){
         row<-data.frame(Gtruth_ID=vals$truths$treeID,#builds row
                         Gtruth_SP=vals$truths$sp,
                         Gtruth_dbh_cm=vals$truths$dbh_cm,
@@ -198,9 +195,11 @@ server<-function(input,output,session){
                         Confidence=sliderValues()$Value,
                         iteration=featnum()-1)
         df$dt<-rbind(df$dt,row) #binds the row to reactive dataframe
-        df$dt<-df$dt[!duplicated(df$dt$iteration),]#removes "duplicate rows"  that are created during this process to ensure only 1 iteration writes 1 row
-        vals$truths<-NULL
-      }
+        df$dt<-df$dt[!duplicated(df$dt$iteration),]%>%#removes "duplicate rows"  that are created during this process to ensure only 1 iteration writes 1 row
+          filter(!is.na(df$dt))#removes NA rows, if they exist (Primarily used to "realign" the dataframe if the user iterates forwards and backwards multiple times)
+        vals$truths<-NULL#resets to NULL when iterating
+        }
+      },silent=TRUE)#does not return error (when iterating forward and backwards when user does not select buffers and just hits "next")
     })
     output$"MatchedTreesTable"<-renderTable(df$dt) #display the dataframe being built (this will be re-rendered and updated at each iteration)
     
