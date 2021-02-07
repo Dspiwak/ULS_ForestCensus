@@ -22,6 +22,29 @@ generate_chunks<-function(shp,chunk_size){
   return(chunks)
 }
 
+resolve_chunks<-function(chunked_polys,chunks){
+  #Takes chunks (in form of a SP input) and convex hulls (or other reconstruction in form of SPDF) which have been 'chunked'
+  #Will return a set of convex hulls / SP which have been resolved due to their "splitting" between chunks.
+  #This process recalculates the convex hull after UnaryUnion of the overlapping polys. 
+  
+  
+  mergedHulls<-gUnaryUnion(chunked_polys)%>% #merges and dissolves boundaries across all overlapping polygons. 
+    disaggregate()
+  re_chull_calc<-list() #creates a temporary list to store recalculated hulls in 
+  for(i in 1:length(mergedHulls)){
+    SingleTree_Matrix<-mergedHulls[i]@polygons[[1]]@Polygons[[1]]@coords #get xy coordinate matrix for the current polygon
+    SingleTree_cent<-gCentroid(mergedHulls[i])
+    rDists<-spDistsN1(SingleTree_Matrix,SingleTree_cent,longlat=FALSE)
+    re_chull_calc[i]<-(mean(rDists)*2)*100 #recalculates the dbh based on the dist between the centroid and the chull points
+  }
+  #convert the polygons to SPDF with dbh data
+  re_chull_calc<-data.frame(diam=do.call(rbind,re_chull_calc))
+  #mergedHulls<-do.call(bind,mergedHulls)
+  mergedHulls<-SpatialPolygonsDataFrame(Sr=mergedHulls,data=re_chull_calc,FALSE)
+  
+  return(mergedHulls)
+}
+
 get.elbow.points.indices<-function(x,y,threshold){
   d1<-diff(y)/diff(x) #first derivative
   d2<-diff(d1)/diff(x[-1]) #second derivative
