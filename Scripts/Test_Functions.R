@@ -45,3 +45,66 @@ spgrd<-SpatialPolygonsDataFrame(spgrd,tempy)
 clustered_points<-cluster_lidar_dbscan(lasdf,20,0.0067)
 #####
 
+
+offset_grdpnts<-makegrid(shp_buffer,cellsize=chunk_size,offset=c(1,1))
+
+library(maptools)
+
+scanregion_buff<-gBuffer(Fullscan,width=sqrt(5000))
+
+grdpnts<-makegrid(scanregion_buff,cellsize=sqrt(5000)) #makes a grid over the given shapefile but only contains "point" centers of the grids
+
+spgrd<-SpatialPoints(grdpnts,proj4string = NAD83_2011) %>% #converts into spatial points
+  SpatialPixels()%>% #generate chunks &clip
+  as("SpatialPolygons")%>%
+  gIntersection(Fullscan,byid=TRUE)
+
+offset_grdpnts<-makegrid(scanregion_buff,cellsize=sqrt(5000))
+offset_spgrd<-SpatialPoints(offset_grdpnts,proj4string = NAD83_2011) %>% #converts into spatial points
+  SpatialPixels()%>%
+  as("SpatialPolygons")
+offset_spgrd<-elide(offset_spgrd,shift=c(sqrt(5000)/2,sqrt(5000)/2))%>%
+  gIntersection(Fullscan,byid=TRUE)
+  
+
+chunks<-rbind(spgrd,offset_spgrd,makeUniqueIDs=TRUE)
+
+
+#####
+
+all_hulls<-chunked_hulls
+all_hulls@data$intersects<-NA
+all_hulls@data$mergedIDs<-NA
+
+for(i in 1:length(all_hulls)){
+  for(k in 1:length(all_hulls)){
+    if(gIntersects(all_hulls[i,],all_hulls[k,])==TRUE && i!=k){
+      all_hulls@data[i,]$intersects<-TRUE
+      all_hulls@data[k,]$intersects<-TRUE
+      temp_poly<-raster::bind(all_hulls[i,],all_hulls[k,])
+      temp_poly@data$mergedIDs<-paste0(all_hulls@data[i,]$clusid,'-',all_hulls@data[k,]$clusid)
+      #plot(temp_poly,col='grey')
+      #plot(all_hulls[i,],add=TRUE,col=NA,border='red')
+      #plot(all_hulls[k,],add=TRUE,col=NA,border='blue')
+      
+      
+      for(i in 1:length(temp_poly)){
+        print(length(temp_poly))
+        print(nrow(temp_poly@polygons[[i]]@Polygons[[1]]@coords))
+        ooga<-rbind(temp_poly@polygons[[i]]@Polygons[[1]]@coords)
+      }
+      
+      
+      
+      temp_poly_chull<-chull(ooga)
+      
+      
+      
+    }
+    else(next)
+  }
+}
+
+writeOGR(merged_hulls,dsn=paste0(wd,'/Processed_Data'),layer=paste0(deparse(substitute(temp)),"_AutomatedOuput"),driver="ESRI Shapefile",overwrite_layer=TRUE)
+
+
