@@ -25,7 +25,7 @@ match_stems<-function(polys,DetectionRange,is.multislice){
         if(closest_chull$dist2gtruth<offset2_gtruth){
           matched_trees<-bind_rows(matched_trees,data.frame(detect_gtruth))
           matched_trees$clusid[i]<-val
-          matched_trees$chull_dbh_cm[i]<-closest_chull$diam3_euc
+          matched_trees$chull_dbh_cm[i]<-closest_chull$diam
           matched_trees$offset[i]<-closest_chull$dist2gtruth
           matched_trees$azimuth[i]<-azimuth
           matched_trees$testcase[i]<-1
@@ -35,7 +35,7 @@ match_stems<-function(polys,DetectionRange,is.multislice){
         else if(closest_chull>offset2_gtruth){
           matched_trees<-bind_rows(matched_trees,data.frame(detect_gtruth))
           matched_trees$clusid[i]<-val
-          matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam3_euc
+          matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam
           matched_trees$offset[i]<-offset2_gtruth
           matched_trees$azimuth[i]<-azimuth
           matched_trees$testcase[i]<-1.2
@@ -45,7 +45,7 @@ match_stems<-function(polys,DetectionRange,is.multislice){
       }else{
         matched_trees<-bind_rows(matched_trees,data.frame(detect_gtruth))
         matched_trees$clusid[i]<-val
-        matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam3_euc
+        matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam
         matched_trees$offset[i]<-offset2_gtruth
         matched_trees$azimuth[i]<-azimuth
         matched_trees$testcase[i]<-1.3
@@ -78,13 +78,13 @@ match_stems<-function(polys,DetectionRange,is.multislice){
         closest_chull<-slice(detect_multipoly,1)
         if(closest_chull$dist2gtruth<offset2_gtruth){
           # matched_trees<-bind_rows(matched_trees,data.frame(detect_gtruth))
-          # matched_trees$chull_dbh_cm[i]<-closest_chull$diam3_euc
+          # matched_trees$chull_dbh_cm[i]<-closest_chull$diam
           # matched_trees$offset[i]<-closest_chull$dist2gtruth
           # matched_trees$azimuth[i]<-azimuth
           # matched_trees$testcase[i]<-2
           matched_trees<-bind_rows(matched_trees,data.frame(knn2))
           matched_trees$clusid[i]<-val
-          matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam3_euc
+          matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam
           matched_trees$offset[i]<-offset2_knn2
           matched_trees$azimuth[i]<-azimuth
           matched_trees$testcase[i]<-2
@@ -94,7 +94,7 @@ match_stems<-function(polys,DetectionRange,is.multislice){
         }else{
           matched_trees<-bind_rows(matched_trees,data.frame(detect_gtruth))
           matched_trees$clusid[i]<-val
-          matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam3_euc
+          matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam
           matched_trees$testcase[i]<-2.2
           Stem_Buff<-Stem_Buff[-which(gIntersects(Stem_Buff,detect_gtruth,byid=TRUE)),]
           loop_polys<-loop_polys[loop_polys$clusid!=val,]
@@ -102,7 +102,7 @@ match_stems<-function(polys,DetectionRange,is.multislice){
       }else{
         matched_trees<-bind_rows(matched_trees,data.frame(detect_gtruth))
         matched_trees$clusid[i]<-val
-        matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam3_euc
+        matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam
         matched_trees$testcase[i]<-2.3
         Stem_Buff<-Stem_Buff[-which(gIntersects(Stem_Buff,detect_gtruth,byid=TRUE)),]
         loop_polys<-loop_polys[loop_polys$clusid!=val,]
@@ -110,7 +110,7 @@ match_stems<-function(polys,DetectionRange,is.multislice){
     }else{ #otherwise, if there is no ground truth in the search area, plot the results, and continue on for later review
       matched_trees[i,]<-NA
       matched_trees$clusid[i]<-val
-      matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam3_euc
+      matched_trees$chull_dbh_cm[i]<-loop_polys[loop_polys$clusid==ids[i],]$diam
       matched_trees$testcase[i]<-3
       loop_polys<-loop_polys[loop_polys$clusid!=val,]
     }
