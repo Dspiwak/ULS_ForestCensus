@@ -108,3 +108,92 @@ for(i in 1:length(all_hulls)){
 writeOGR(merged_hulls,dsn=paste0(wd,'/Processed_Data'),layer=paste0(deparse(substitute(temp)),"_AutomatedOuput"),driver="ESRI Shapefile",overwrite_layer=TRUE)
 
 
+
+## Working "test" version of the circle fitting to initial fourier curve series fitting. 
+
+calc_circbounds<-function(circle_dat,npoints=100){ #from stack overflow plot ggplot circle https://stackoverflow.com/questions/6862742/draw-a-circle-with-ggplot2
+  r=circle_dat$radius
+  tt<-seq(0,2*pi,length.out=npoints)
+  xx<-circle_dat$cx+r*cos(tt)
+  yy<-circle_dat$cy+r*sin(tt)
+  return(data.frame(x=xx,y=yy))
+}
+
+holderframe<-data.frame('Stem'=NA)
+#test extraction of points per chull to calc fourier trans
+for(i in 1:(length(hulls)-1)){
+  SingleTree_dat<-intersect(points_df,hulls[i,]) #get set of points per hull
+  Fitted_Circ<-data.frame(fitCircle(SingleTree_dat$X,SingleTree_dat$Y)) #fit circle (least squares method...from package...should switch to RANSAC)
+  coordinates(Fitted_Circ)<-c("cx","cy")
+  
+  AdjustedCoords<-data.frame(original_x=NA,original_y=NA,adjusted_x=NA,adjusted_y=NA,dist=NA,azimuth=NA)
+  
+  for(k in 1:length(SingleTree_dat)){#recalculate the individual tree's point's coords w/ respect to the fitted circle cent. as origin
+    dist<-sqrt(((SingleTree_dat[k,]$X-Fitted_Circ$cx)^2)+((SingleTree_dat[k,]$Y-Fitted_Circ$cy)^2))
+    azimuth<-atan2((SingleTree_dat[k,]$Y-Fitted_Circ$cy),(SingleTree_dat[k,]$X-Fitted_Circ$cx))
+    
+    newx<- (dist*sin(azimuth))
+    newy<- (dist*cos(azimuth))
+    
+    
+    AdjustedCoords[k,]<-c(SingleTree_dat[k,]$X,SingleTree_dat[k,]$Y,newx,newy,dist,azimuth)
+  }
+  
+  
+  circ<-calc_circbounds(Fitted_Circ)
+  
+  polarplot<-ggplot(data=AdjustedCoords, aes(azimuth,dist))+
+    geom_point()
+  #coord_polar("y")
+  cartplot<-ggplot(data=data.frame(SingleTree_dat),aes(X,Y))+
+    geom_point()+
+    geom_point(data=data.frame(Fitted_Circ),aes(cx,cy),col='red')+
+    geom_path(data=circ,aes(x,y),col='red')
+  grid.arrange(cartplot,polarplot,ncol=2,top=paste('Tree ',hulls[i,]$id))
+  
+}
+
+#plot(AdjustedCoords$adjusted_x,AdjustedCoords$adjusted_y)
+
+#write.csv(AdjustedCoords,file='C:/Users/note2/Documents/GitHub/ULS_ForestCensus/Processed_Data/Example_Polar_StemData.csv')
+#writeOGR(hulls,dsn=getwd(),layer=paste0(deparse(substitute(hulls)),"__TestCheck__AutomatedOuput"),driver="ESRI Shapefile",overwrite_layer=TRUE)
+
+
+dat<-AdjustedCoords$dist
+#t<-1:max(AdjustedCoords$azimuth)
+#rg<-diff(range(dat))
+
+nff<-function(x=NULL,n=NULL,up=10L,plot=TRUE,add=FALSE,main=NULL,...){
+  dff<<-fft(x)
+  t=seq(from=-pi,to=pi)#may need to adjust to match radians measurment?
+  nt=seq(from=-pi,to=pi-1/up,by=1/up)
+  ndff<<-array(data=0,dim=c(length(nt),1L))
+  ndff[1]<<-dff[1]
+  if(n!=0){
+    ndff[2:(n+1)]<<-dff[2:(n+1)]
+    ndff[length(ndff):(length(ndff)-n+1)]<<-dff[length(x):(length(x)-n+1)]
+  }
+  indff<<-fft(ndff/max(x),inverse=TRUE)
+  idff<<-fft(dff/max(x),inverse=TRUE)
+  if(plot){
+    if(!add){
+      plot(x=t,y=x,pch=16L,xlab="Time",ylab="Measurment",
+           main=ifelse(is.null(main),paste(n," harmonics"),main))
+      lines(y=Mod(idff),x=t,col=adjustcolor(1L,alpha=0.5))
+    }
+    lines(y=Mod(indff),x=nt,...)
+  }
+  
+  ret=data.frame(time=nt,y=Mod(indff))
+  ret$y=((ret$y-min(ret$y)) / (max(ret$y)-min(ret$y)))*(max(x)-min(x))+min(x)
+  return(ret)
+}
+
+res=nff(x=dat,n=18L,up=10L,col=2L,add=TRUE)
+
+plot(res$time,res$y)
+
+ggplot(data=AdjustedCoords,aes(azimuth,dist))+
+  geom_point()+
+  geom_line(data=res,aes(time,y))
+
