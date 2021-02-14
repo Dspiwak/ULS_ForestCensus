@@ -64,7 +64,30 @@ for(i in 2:length(chunks_with_points)){
 }
 
 hulls<-resolve_chunks(chunked_hulls,chunks_with_points) #will "resolve" chunking of convex hulls...but rewrites / recalcs the dbh data
+hulls$id<-c(1:nrow(hulls))
 #could use hulls to "re-extract the points from before to calculate the fourier trans measurment possibly && circle fitting?
+
+
+Fitted_CircleData<-fit_circle(points_df,hulls)
+
+
+Adjusted_CoordData<-conv2_polar(points_df,Fitted_CircleData,hulls)
+
+
+for(i in 1:8){
+  dat<-Adjusted_CoordData[[1]][[i]]
+  res<-fit_fourier(dat,n=8,up=20,plot=TRUE)
+}
+
+#write.csv(AdjustedCoords,file='C:/Users/note2/Documents/GitHub/ULS_ForestCensus/Processed_Data/Example_Polar_StemData.csv')
+#writeOGR(hulls,dsn=getwd(),layer=paste0(deparse(substitute(hulls)),"__TestCheck__AutomatedOuput"),driver="ESRI Shapefile",overwrite_layer=TRUE)
+
+
+plot(res$time,res$y)
+
+# ggplot(data=AdjustedCoords,aes(azimuth,dist))+
+#   geom_point()+
+#   geom_line(data=res,aes(time,y))
 
 
 #####
