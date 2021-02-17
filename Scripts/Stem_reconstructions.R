@@ -12,7 +12,7 @@ conv_hulls<-function(clusters_df){
     SingleTree_Points<-data.frame(clusters_df) %>%
       filter(clusters_df$id==i)
     SingleTree_Matrix<-cbind(SingleTree_Points$X,SingleTree_Points$Y)
-    temp<-chull(SingleTree_Matrix)
+    temp<-chull(SingleTree_Matrix) #could use gConvexHull rather than chull (would make code more readable later)
     Chull_Points<-SingleTree_Matrix[c(temp,temp[1]),]
     temp_df<-data.frame(Chull_Points)
     coordinates(temp_df)<-c("X1","X2")
@@ -94,11 +94,11 @@ fit_circle<-function(points,hulls){ #fits a circle to each of the hulls in a dat
   return(dat)
 }
 
-
 conv2_polar<-function(points_df,Fitted_CircleData,hulls,plot=FALSE){
   polar_points_dfls<-data.frame("dfs"=matrix(NA,ncol=1,nrow=length(hulls)))
   for(i in 1:length(hulls)){
-    SingleTree_points<-intersect(points_df,hulls[i,])
+    minibuff_hull<-gBuffer(hulls[i,],width=0.1) #must make a small buffer around the chull because points along the boundary will not be "detected" with the intersection
+    SingleTree_points<-intersect(points_df,minibuff_hull)
     SingleTree_CircleDat<-Fitted_CircleData[i,]
     SingleTree_AdjustedCoords<-data.frame(original_x=NA,original_y=NA,dist=NA,azimuth=NA)
     
@@ -114,7 +114,7 @@ conv2_polar<-function(points_df,Fitted_CircleData,hulls,plot=FALSE){
       
       SingleTree_AdjustedCoords[k,]<-c(SingleTree_points[k,]$X,SingleTree_points[k,]$Y,dist,azimuth)
     }
-    
+     print(k)
      polar_points_dfls$dfs[i]<-list(SingleTree_AdjustedCoords)
      polar_points_dfls$hullid[i]<-hulls[i,]$id
      
@@ -134,30 +134,31 @@ conv2_polar<-function(points_df,Fitted_CircleData,hulls,plot=FALSE){
   return(polar_points_dfls)
 }
  
-
-
 fit_fourier<-function(AdjustedCoords_dists_df,n,up=10L,plot=FALSE){
   dat<-AdjustedCoords_dists_df$dist
-  dff=fft(dat)
-  t=seq(from=-pi,to=pi)#may need to adjust to match radians measurment?
-  nt=seq(from=-pi,to=pi-1/up,by=1/up)
+  
+  dff=fft(dat)#discrete fourier transform of the distances
+  t=seq(from=-pi,to=pi,length.out=length(dat))#domain range ("time") [same length as the data]
+  nt=seq(from=-pi,to=pi,length.out=length(dat))#upsampled domain range ... this may be affecting the overall domain /shift?
   ndff=array(data=0,dim=c(length(nt),1L))
   ndff[1]=dff[1]
   if(n!=0){
     ndff[2:(n+1)]=dff[2:(n+1)]
     ndff[length(ndff):(length(ndff)-n+1)]=dff[length(dat):(length(dat)-n+1)]
   }
-  indff=fft(ndff/max(dat),inverse=TRUE)
-  idff=fft(dff/max(dat),inverse=TRUE)
+  indff=fft(ndff/length(dat),inverse=TRUE)#calculates the 
+  idff=fft(dff/length(dat),inverse=TRUE)
 
   ret=data.frame(time=nt,y=Mod(indff))
-  ret$y=((ret$y-min(ret$y)) / (max(ret$y)-min(ret$y)))*(max(dat)-min(dat))+min(dat)
-  #ret$my=Mod(idff)
+  ret$y=((ret$y-min(ret$y)) / (max(ret$y)-min(ret$y)))*(max(dat)-min(dat))+min(dat) #normalize data to same period as data (-pi -pi)
+  blek<<-Mod(idff)
   
-  print(paste0)
-  
-  
-  
+  print(paste0("t= ",length(t)))
+  print(paste0("nt= ",length(nt)))
+  print(paste0("ndff length= ",length(ndff)))
+  print(paste0("dff length= ",length(dff)))
+  print(paste0("indff length= ",length(indff)))
+  print(paste0("idff length= ",length(idff)))
   
   
   if(plot){
@@ -182,5 +183,33 @@ fit_fourier<-function(AdjustedCoords_dists_df,n,up=10L,plot=FALSE){
   
   #using fourier curve and fitted circle to "fill in" fractions of missing areas of fourier curve (where not sufficient data coverage) [currently not implemented]
   #dbh2=(L/pi)+(1-(ds/2*pi))*pc (where pc is diam of fitted circle)
-  return(dbh)
+  return(ret)
+}
+
+remove_fourieroutliers<-function(fouriercurve_df,polarcord_data){
+  newpolardat=polarcord_data
+  newpolardat$dist2curve=NA
+  
+  for(i in 1:nrow(newpolardat)){
+    newpolardat$dist2curve[i]=sqrt((fouriercurve_df$y[i]^2+newpolardat$dist[i]^2)+
+                                     (2*fouriercurve_df$y[i]*newpolardat$dist[i]*cos(fouriercurve_df$time[i]-newpolardat$azimuth[i])))
+  }
+  
+  newpolardat=filter(newpolardat,dist2curve<3)
+  return(newpolardat)
+}
+
+calc_arclength<-function(fouriercurve_df,polarcord_data){
+  arclength=list()
+  for(i in 1:length(fouriercurve_df$y)-1){#calculate arc length given a dataframe with datapoints along a fourier curve
+    arclength[i]=sqrt((fouriercurve_df$y[i]^2+fouriercurve_df$y[i+1]^2)+
+                        (2*fouriercurve_df$y[i]*fouriercurve_df$y[i+1]*cos(fouriercurve_df$time[i]-fouriercurve_df$time[i+1])))
+  }
+  arclength=do.call(sum,arclength)
+  
+  effectivedomain=sum(abs(range(polarcord_data$azimuth))) #calculates the effective domain range as the sum of min & max theta values (essentially 2pi right now)
+  
+  fourier_dbh=(2*arclength)/effectivedomain
+  
+  return(fourier_dbh)
 }
