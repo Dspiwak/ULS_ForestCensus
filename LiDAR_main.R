@@ -76,10 +76,63 @@ Adjusted_CoordData<-conv2_polar(points_df,Fitted_CircleData,hulls)
 
 for(i in 1:8){
   dat<-Adjusted_CoordData[[1]][[i]]
-  res<-fit_fourier(dat,n=8,up=20,plot=TRUE)
+  res<-fit_fourier(dat,n=8,up=10,plot=TRUE) #maximum value of harmonics is nrow(dat)-2 (wang et all set this to 8 / 3 depending on AOI)
 }
 
-#write.csv(AdjustedCoords,file='C:/Users/note2/Documents/GitHub/ULS_ForestCensus/Processed_Data/Example_Polar_StemData.csv')
+
+
+#Testing fourier fitting 1
+Test_FourierDat<-data.frame(dist=c(1,2,2,2,3,4,5,2,1),azimuth=(seq(-pi,pi,length.out=length(Test_FourierDat$dist))))
+res<-fit_fourier(Test_FourierDat,n=3,up=10,plot=TRUE)
+
+plot(Test_FourierDat$azimuth,Test_FourierDat$dist)
+lines(res$time,res$y,col='red')
+lines(Test_FourierDat$azimuth,blek,col='blue')
+
+
+
+#Testing fourier fitting 2 (tree model)
+#Test_FourierDatApp<-read.csv(paste0(getwd(),"/Processed_Data/TestFourierSeries")) #Challenge Tree with all cases
+Test_FourierDatApp<-read.csv(paste0(getwd(),"/Processed_Data/TestTree_OptimalTree"))
+temp<-chull(Test_FourierDatApp)
+Test_FourierDatApp_Hull<-Test_FourierDatApp[c(temp,temp[1]),]
+testchull<-SpatialPolygons(list(Polygons(list(Polygon(Test_FourierDatApp_Hull)),ID=1)))
+testchull$id<-1
+coordinates(Test_FourierDatApp)<-c("x","y")
+mockdat<-data.frame(seq(1:length(Test_FourierDatApp)))
+spdf<-SpatialPointsDataFrame(coords=Test_FourierDatApp,data=mockdat)
+spdf$X<-spdf$x
+spdf$Y<-spdf$y
+#testcircdat<-data.frame("cx"=14.0,"cy"=10.06554,"radius"=7.205898) #original cx=5.434675 / cy=13.06554 (ONLY FOR CHALLANGE TREE)
+testcircdat<-fit_circle(spdf,hulls = testchull)
+#coordinates(testcircdat)<-c("cx","cy")
+testpolar<-conv2_polar(spdf,testcircdat,testchull,plot=TRUE)
+res2<-fit_fourier(testpolar[[1]][[1]],n=2,up=10,plot=TRUE)
+
+testfit_in<-testpolar[[1]][[1]]$dist
+testfit_out<-fft(testfit_in)
+barplot(Mod(testfit_out[2:(length(testfit_in)/2+1)]),main='Supposed "Energy" of Harmonics')
+
+
+#testmod<-lm(testpolar[[1]][[1]]$azimuth+testpolar[[1]][[1]]$dist~res2$time+res2$y)
+testpolarcleaned<-remove_fourieroutliers(res2,testpolar[[1]][[1]])
+
+calc_arclength(res2,testpolar[[1]][[1]])
+
+temppolarplot<-ggplot()+
+  geom_point(data=testpolar[[1]][[1]],aes(azimuth,dist))+
+  coord_polar(theta="x",direction=-1,start=pi/2)+
+  scale_y_continuous(limits=c(0,max(testpolar[[1]][[1]]$dist)+.2))+
+  geom_line(data=res2,aes(time,y))+
+  geom_point(data=testpolarcleaned,aes(azimuth,dist),color='red')
+tempcartplot<-ggplot()+
+  geom_point(data=testpolar[[1]][[1]],aes(azimuth,dist))+
+  geom_line(data=res2,aes(time,y))+
+  geom_point(data=testpolarcleaned,aes(azimuth,dist),color='red')+
+  scale_y_continuous(limits=c(0,max(testpolar[[1]][[1]]$dist)+.05))
+grid.arrange(tempcartplot,temppolarplot,ncol=2)
+
+#write.csv(res2,file='C:/Users/note2/Documents/GitHub/ULS_ForestCensus/Processed_Data/Example_FourierCurve_Data.csv')
 #writeOGR(hulls,dsn=getwd(),layer=paste0(deparse(substitute(hulls)),"__TestCheck__AutomatedOuput"),driver="ESRI Shapefile",overwrite_layer=TRUE)
 
 

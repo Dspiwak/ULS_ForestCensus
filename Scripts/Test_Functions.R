@@ -197,3 +197,23 @@ ggplot(data=AdjustedCoords,aes(azimuth,dist))+
   geom_point()+
   geom_line(data=res,aes(time,y))
 
+
+
+##imbed dataframe
+temp<-list()
+for(k in 1:10){
+  tempdf<-data.frame("da"=NA,"ba"=NA)
+  dist<-list()
+  az<-list()
+  for(i in 1:10){
+    dist[i]<-sin(i)
+    az[i]<-cos(i)
+  }
+  tempdf<-rbind(tempdf,c(dist),(az))
+  #temp[1,]<-c("a"=paste(dist,collapse=","),"b"=paste(az,collapse=","))
+  temp[k]<-list(tempdf)
+}
+tempdf$da[1]<-list(tempdf)
+
+
+
