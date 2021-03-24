@@ -94,6 +94,85 @@ fit_circle<-function(points,hulls){ #fits a circle to each of the hulls in a dat
   return(dat)
 }
 
+RANSAC_circle<-function(points,hulls,prob,numsample){
+  '%!in%'= Negate('%in%')  #temporary function / value which will be used to check if values are not in a list
+  
+  random_sample<-function(x,numsample){#select 3 points randomly from the data
+    sample_dat=data.frame()
+    sample_indices=sample(nrow(x),size=numsample) #randomly select a number from the length of the point dataset to extract those x/y corods (numsample typically set to 3)
+    for(i in 1: length(sample_indices)){
+      sample_dat=rbind(sample_dat,c(x[sample_indices[i],])) #append the selected data to a list of paired x/y coords
+    }
+    return(sample_dat)
+  }
+  
+  make_model<-function(sample_dat){
+    pt1=sample_dat[1,]
+    pt2=sample_dat[2,]
+    pt3=sample_dat[3,]
+    
+    #perform matrix algebra to calculate A,B,C matrices to determine centroid of circle
+    A=cbind( c( pt2[[1]]-pt1[[1]] , pt2[[2]]-pt1[[2]]) , c(pt3[[1]]-pt2[[1]] , pt3[[2]]-pt2[[2]]) )
+    B=rbind( c(pt2[[1]]^2-pt1[[1]]^2 + pt2[[2]]^2-pt1[[2]]^2) , c(pt3[[1]]^2-pt2[[1]]^2+pt3[[2]]^2-pt2[[2]]^2) )
+    inv_A=solve(A) #calcualtes inverse of matrix 'A'
+    
+    c_x=(inv_A %*% B)/2 #dot product
+    c_y=(inv_A %*% B)/2
+    c_x=c_x[1,] #centroid x-coord
+    c_y=c_y[2,] #centroid y-coord
+    
+    r=sqrt((c_x-pt1[[1]])^2 + (c_y-pt1[[2]])^2) #radius
+    
+    return(data.frame('c_x'=c_x , 'c_y'=c_y , 'r'=r))
+  }
+  
+  eval_model<-function(sample_dat,model_dat){
+    d=0
+    c_x=model_dat$c_x
+    c_y=model_dat$c_y
+    r=model_dat$r
+    
+    for(i in 1:nrow(sample_dat)){ #may need to adjust to fix loop length
+      dis=sqrt( (sample_dat$x_data[i]-c_x)^2 + (sample_dat$y_data[i]-c_y)^2 ) #problem here? warning message
+      
+      if(dis >= r){
+        d= d+(dis-r)
+      }
+      else{ d=d+(r-dis) }
+    }
+    
+    return(d)
+  }
+  
+  fitted_RANSAC=data.frame('c_x'=NA,'c_y'=NA,'r'=NA,'clusid'=NA)
+  for( i in 1:length(hulls)){
+    SingleTree_points = intersect(points,hulls[i,]) #isolate a singular tree's set of points
+    SingleTree_points<-data.frame('x_data'=SingleTree_points$X,'y_data'=SingleTree_points$Y)
+    
+    plot(SingleTree_points$x_data,SingleTree_points$y_data,asp=1)
+    
+    
+    d_min=99999 #initialize a default values which will be iteratively improved upon for each tree
+    best_model=NA
+    
+    k= (log(1-prob)) / (log(1-(1-nrow(SingleTree_points))^numsample)) #Number of iterations, constrained by probability that the generated model is accurate
+    
+    for(j in 1:k){ #n should be calculated optimally for a .95 percentile...this is how many times to try to calc the optimal circle
+      sample_dat=random_sample(SingleTree_points,numsample)
+      model_dat=make_model(sample_dat)
+      d_temp=eval_model(sample_dat,model_dat)
+      
+      if(d_min>d_temp){ #if current model is better than previous model, then update the model
+        best_model=model_dat
+        d_min=d_temp
+        draw.circle(best_model$c_x,best_model$c_y,best_model$r)
+      }
+    }
+    fitted_RANSAC[i,]<-c(best_model$c_x,best_model$c_y,best_model$r,hulls[i,]$id)
+  }
+  return(fitted_RANSAC)
+}
+
 conv2_polar<-function(points_df,Fitted_CircleData,hulls,plot=FALSE){
   polar_points_dfls<-data.frame("dfs"=matrix(NA,ncol=1,nrow=length(hulls)))
   for(i in 1:length(hulls)){
