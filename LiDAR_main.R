@@ -33,47 +33,63 @@ source("Scripts/Stem_reconstructions.R")
 LiDAR_structure_check("/Processed_Data")
 preprocessed_las<-list.files(path=paste0(wd,"/Raw_Data"),pattern=".laz")
 clipregion<-testarea
+cliptruth<-intersect(Ground.Truth,clipregion)
 
 if(length(preprocessed_las)>1){ #checks if only 1 .las file or many, currently only implemented for 1 scan file
   print("Too many .laz files present in raw data directory, consider revising (Only applicable following final code)")
-}else(lasdf<-las_process(("Raw_Data"),1,2)) #generates a singular slice for this (1-2m) height
+}else(lasdf<-las_process(("Raw_Data"),1,4)) #generates a singular slice for this (1-2m) height
 
 #To adjust clipping / analysis region, set it in the forest geo processing section (for now)
 
 
 points_df<-lasdf
-coordinates(points_df)<-c("X","Y") #convert dataframe into spatial points data type
-chunks<-generate_chunks(Fullscan,chunk_size=sqrt(5000))
+coordinates(points_df)<-c("X","Y","Z") #convert dataframe into spatial points data type
+chunks<-generate_chunks(clipregion,chunk_size=sqrt(5000))
 
 
 chunks_with_points<-intersect(chunks,points_df) #extract only the chunks that have points in them...primarily useful for testing
 
-#Preform initial runthrough of clustering and convex hull generation of points. 
-clipped_lasdf<-intersect(points_df,chunks_with_points[1])%>%
-  data.frame()
-chunked_hulls<-conv_hulls(cluster_lidar_dbscan(clipped_lasdf,20,0.0067))
-chunked_hulls$chunk_hull_ID<-paste(1,'-',chunked_hulls$clusid)
-for(i in 2:length(chunks_with_points)){
+#Preform initial runthrough of clustering and convex hull generation of points.
+minPnts<-20
+KnnThreshold<-0.0067
+
+for(i in 1:length(chunks_with_points)){
   chunk<-chunks_with_points[i]
   clipped_lasdf<-intersect(points_df,chunk) %>%
     data.frame()
-  clustered_points<-cluster_lidar_dbscan(clipped_lasdf,20,0.0067)
-  chunk_hulls<-conv_hulls(clustered_points)
-  chunk_hulls$chunk_hull_ID<-paste(i,'-',chunk_hulls$clusid)
-  chunked_hulls<-rbind(chunked_hulls,chunk_hulls,makeUniqueIDs=TRUE)
+  
+  clustered_points<-cluster_lidar_dbscan(clipped_lasdf,minPnts,KnnThreshold)
+  
+  current_chunk_hulls<-conv_hulls(clustered_points,plot=FALSE)
+  current_chunk_hulls$chunk_hull_ID<-paste(i,'-',current_chunk_hulls$ClusterID)
+  
+  if(i==1){
+    chunked_hulls<-current_chunk_hulls
+  }
+  else(chunked_hulls<-rbind(chunked_hulls,current_chunk_hulls,makeUniqueIDs=TRUE))
 }
 
-hulls<-resolve_chunks(chunked_hulls,chunks_with_points) #will "resolve" chunking of convex hulls...but rewrites / recalcs the dbh data
-hulls$id<-c(1:nrow(hulls))
-#could use hulls to "re-extract the points from before to calculate the fourier trans measurment possibly && circle fitting?
+stems<-resolve_stems(chunked_hulls) #will "resolve" chunking of convex hulls...but rewrites / recalcs the dbh data
+
+#Fullslice Circle Fitting
+Fitted_CirclePratt<-fit_circle(stems,method='Pratt',plot=TRUE) 
+
+Fitted_CircleLM<-fit_circle(stems,method='LM',plot=TRUE) 
 
 
-Fitted_CircleData<-fit_circle(points_df,hulls)
+#Multislice Fitting (Needs "vertical profile ggplot)
+stems$ConvH<-multislice_process(stems,fit_convhull) #Convex Hull approach
+
+stems$Circle_Pratt<-multislice_process(stems,fit_circle,"Pratt")#Pratt Circle Fit
+
+stems$Circle_LM<-multislice_process(stems,fit_circle,"LM")#Reduced Levenberg-Marquardt Method
 
 
-Adjusted_CoordData<-conv2_polar(points_df,Fitted_CircleData,hulls)
+#RANSAC Fitting
+Fitted_Ransac_Circles<-RANSAC_circle(points_df,stems,.95,.5,3)
 
-
+#Fourier Curve Fitting
+Adjusted_CoordData<-conv2_polar(points_df,Fitted_CircleData,stems)
 for(i in 1:8){
   dat<-Adjusted_CoordData[[1]][[i]]
   res<-fit_fourier(dat,n=8,up=10,plot=TRUE) #maximum value of harmonics is nrow(dat)-2 (wang et all set this to 8 / 3 depending on AOI)
@@ -161,7 +177,7 @@ cor(matched_stems$chull_dbh_cm,matched_stems$dbh_cm,method="pearson")
 summary(lin_model)
 cat(paste0("With an RMSE of ",rmse," cm",
            "\n Searching in tree sizes >",Smallest.Tree.Size,
-           "\n Total trees present:",nrow(Clipped.GTruth),
+           "\n Total trees present:",nrow(cliptruth),
            "\n Total trees detected:",nrow(hulls)))
 
 p<-ggplot(data=as.data.frame(matched_stems),aes(x=dbh_cm,y=chull_dbh_cm,ymin=0,ymax=max(chull_dbh_cm),xmin=0,xmax=max(dbh_cm)))+
@@ -172,3 +188,12 @@ p<-ggplot(data=as.data.frame(matched_stems),aes(x=dbh_cm,y=chull_dbh_cm,ymin=0,y
   stat_regline_equation(label.y=max(matched_stems$chull_dbh_cm)-5)
 p
 plot(lin_model)
+
+temphistdat<-as.data.frame(matched_stems)
+bucket<-list(chull_dbh=temphistdat$chull_dbh_cm,truth_dbh=temphistdat$dbh_cm)
+p2<-ggplot(melt(bucket),aes(value,fill=L1))+
+  geom_histogram(position="stack",binwidth=10)
+p2
+
+tab<-table(temphistdat$dbh_cm,temphistdat$chull_dbh_cm)
+barplot(tab)
