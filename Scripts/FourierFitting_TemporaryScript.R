@@ -67,8 +67,24 @@ conv2_polar<-function(points_df,Fitted_CircleData,hulls,plot=FALSE){
 }
 
 fit_fourier<-function(AdjustedCoords_dists_df,n,up=10L,plot=FALSE){
-  dat<-AdjustedCoords_dists_df$dist
+  dat=AdjustedCoords_dists_df$dist
   
+  m=mean(dat)
+  sigma=sd(dat)
+  vec=vector()
+  for(i in 1:length(dat)){
+     if(abs(dat[i]-m)<sigma){
+       vec=c(vec,dat[i])
+     }
+    # if(m-dat[i]<sigma & (dat[i]-m)<3*sigma){
+    #   vec<-c(vec,dat[i])
+    # }
+    # if(dat[i]>0.2){
+    #   vec<-c(vec,dat[i])
+    # }
+  }
+  dat=vec
+  print(length(dat))
   dff=fft(dat)#discrete fourier transform of the distances
   t=seq(from=-pi,to=pi,length.out=length(dat))#domain range ("time") which is -pi:pi (should be only extents of the dataset?)
   ndff=array(data=0,dim=c(length(t),1L))
@@ -82,7 +98,8 @@ fit_fourier<-function(AdjustedCoords_dists_df,n,up=10L,plot=FALSE){
   
   ret=data.frame(time=t,y=Mod(indff))
   ret$y=((ret$y-min(ret$y)) / (max(ret$y)-min(ret$y)))*(max(dat)-min(dat))+min(dat) #normalize data to same period as data (-pi -pi)
-
+  
+  print(data.frame(dat))
   
   if(plot){ #allows plotting of data in polar and cartesian coordinate systems
     cartgraph=ggplot(data=AdjustedCoords_dists_df,aes(azimuth,dist))+
@@ -90,6 +107,7 @@ fit_fourier<-function(AdjustedCoords_dists_df,n,up=10L,plot=FALSE){
       geom_line(data=ret,aes(time,y),color='red')
     polargraph=ggplot(data=AdjustedCoords_dists_df,aes(azimuth,dist))+
       geom_point()+
+      #geom_point(data=data.frame(dat),aes(time,dist),color='red')+
       geom_line(data=ret,aes(time,y),col='red')+
       coord_polar(theta="x",direction=-1,start=pi/2)+
       scale_y_continuous(limits=c(0,max(testpolar[[1]][[1]]$dist)+.2))+
@@ -106,7 +124,8 @@ OccludedTree<-read.csv(paste0(getwd(),"/TestTree_UnevenOcclusion"))
 
 #Convert a test dataset to a 'spatial' object and calculate initial convex hull----
 
-dataset<-OptimalTree #Specific selected test dataset
+dataset<-SubOptimalTree #Specific selected test dataset
+
 
 ConvHull_points<-chull(dataset)#Calculate the convex hull (required for when looping over actual entire dataset)
 dataset_Hull<-dataset[c(ConvHull_points,ConvHull_points[1]),]
