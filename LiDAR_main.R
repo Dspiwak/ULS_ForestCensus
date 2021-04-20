@@ -164,30 +164,34 @@ plot(res$time,res$y)
 source("Scripts/Stem_matching.R")
 #A temporary fix (will need to re-write the ID somehow)
 hulls$clusid<-c(1:length(hulls))
-matched_stems<-match_stems(hulls,2.5)
+matched_stems<-match_stems(stems,cliptruth,2.5)
 
 
 #####
 ##### Stat. Analyses
+source("Scripts/Stats_Outputs.R")
 
-rmse<-sqrt(mean((matched_stems$chull_dbh_cm-matched_stems$dbh_cm)^2))
-lin_model<-lm(matched_stems$chull_dbh_cm~matched_stems$dbh_cm)
-cor(matched_stems$chull_dbh_cm,matched_stems$dbh_cm,method="pearson")
+measures<-list("ConvH","Circle_Pratt","Circle_LM")
+stats<-basic_stats(cliptruth,stems,matched_stems,measures)
 
-summary(lin_model)
-cat(paste0("With an RMSE of ",rmse," cm",
-           "\n Searching in tree sizes >",Smallest.Tree.Size,
-           "\n Total trees present:",nrow(cliptruth),
-           "\n Total trees detected:",nrow(hulls)))
+plot_regression(matched_stems$dbh_cm,matched_stems$ConvH)
+plot_regression(matched_stems$dbh_cm,matched_stems$Circle_Pratt)
+plot_regression(matched_stems$dbh_cm,matched_stems$Circle_LM)
 
-p<-ggplot(data=as.data.frame(matched_stems),aes(x=dbh_cm,y=chull_dbh_cm,ymin=0,ymax=max(chull_dbh_cm),xmin=0,xmax=max(dbh_cm)))+
-  geom_smooth(method="lm",formula=y~x)+
-  geom_point()+
-  coord_equal()+
-  stat_cor(label.y=max(matched_stems$chull_dbh_cm))+
-  stat_regline_equation(label.y=max(matched_stems$chull_dbh_cm)-5)
-p
+lin_model<-lm(matched_stems$ConvH~matched_stems$dbh_cm)
 plot(lin_model)
+
+
+
+
+
+
+
+
+
+
+
+
 
 temphistdat<-as.data.frame(matched_stems)
 bucket<-list(chull_dbh=temphistdat$chull_dbh_cm,truth_dbh=temphistdat$dbh_cm)
