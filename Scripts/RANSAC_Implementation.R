@@ -10,6 +10,7 @@ circle_func<-function(a,b,r,x){
 init_circ<-function(){
   x_data=c()
   y_data=c()
+  z_data=c()
   
   a=2
   b=3
@@ -28,10 +29,11 @@ init_circ<-function(){
     else{
       y=y2+rnorm(1)*5
     }
-    x_data=append(x_data,x)
+    x_data=append(x_data,as.numeric(x))
     y_data=append(y_data,y)
+    z_data=append(z_data,rnorm(1,1.3,.05))
   }
-  return(data.frame('x_data'=x_data,'y_data'=y_data))
+  return(data.frame('x_data'=x_data,'y_data'=y_data,'z_data'=z_data))
 }
 
 #create a function to make R equivalent of 'not in'
@@ -76,8 +78,8 @@ eval_model<-function(sample_dat,model_dat){
   c_y=model_dat$c_y
   r=model_dat$r
   
-  for(i in 1:nrow(sample_dat)){ #may need to adjust to fix loop length
-    dis=sqrt( (sample_dat$x_data[i]-c_x)^2 + (sample_dat$y_data[i]-c_y)^2 ) #problem here? warning message
+  for(i in 1:nrow(sample_dat)){ 
+    dis=sqrt( (sample_dat$x_data[i]-c_x)^2 + (sample_dat$y_data[i]-c_y)^2 ) #this may be an issue as it assumes the circle is fitted about the center & may not adjust to a new centroid
     
     if(dis >= r){
       d= d+(dis-r)
@@ -109,9 +111,20 @@ execute_ransac<-function(x){
 
 
 testdat<-init_circ() #generate test data
-plot(testdat,asp=1) #plot test data while preserving aspect ratio
+testdat<-testdat
+plot(testdat$x_data,testdat$y_data,asp=1) #plot test data while preserving aspect ratio
 
-k<-50 #iterate and sample 50 times (should update to the probabilistic approach for determining k)
+n=3 #number of sampled points per iteration
+w=.5 #probability selected data is within error tolerance
+
+Ek<-w^-n #expected value of k (which should be exceeded by 2-3 SD of k...thus probabalistic k is determined below)
+prob=.95 #probability at least one random selection is error free of set n points
+
+k<-(log(1-prob)) / (log(1-(1-w)^3)) #probablistic approach for determining k
+k<-k*Ek #k ~ = probablistic k * expected value of k 
+
 
 optimal_circ<-execute_ransac(testdat)
+draw.circle(optimal_circ$c_x,optimal_circ$c_y,optimal_circ$r,col=NA,border='red')
+points(optimal_circ$c_x,optimal_circ$c_y,col='red')
 
