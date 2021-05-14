@@ -145,90 +145,163 @@ fit_circle<-function(stem,method,plot=FALSE){ #fits a circle to each of the hull
   return(dat)
 }
 
-RANSAC_circle<-function(points,hulls,prob,w,numsample=3,plot=FALSE){
-  '%!in%'= Negate('%in%')  #temporary function / value which will be used to check if values are not in a list
+rodrigues_rot<-function(P,n0,n1){
+  #Rotate a set of points between two normal vectors using Rodrigues' formula
+  #P= dataset of points (x,y,z coords)
+  #n0= origin vector , n1= destination vector
+  #Returns dataset but rotated
   
-  random_sample<-function(x,numsample){#select 3 points randomly from the data
-    sample_dat=data.frame()
-    sample_indices=sample(nrow(x),size=numsample) #randomly select a number from the length of the point dataset to extract those x/y corods (numsample typically set to 3)
-    for(i in 1: length(sample_indices)){
-      sample_dat=rbind(sample_dat,c(x[sample_indices[i],])) #append the selected data to a list of paired x/y coords
+  P=as.matrix(P)
+  if(size(P)[2]==1){ #reformat matrix if it is the '1D'...if is coordinates of a center
+    P=t(P)
+  }
+  
+  #get rotation k and angle theta
+  n0=n0/norm(n0,type="2")
+  n1=n1/norm(n1,type="2")
+  k_rot=xprod(n0,n1)
+  P_rot<-zeros(nrow(P),m = 3)
+  
+  if(norm(k_rot,type="2")!=0){
+    k_rot<-k_rot/norm(k_rot,type="2")
+    theta<-acos(dot(n0,n1))
+    for(i in 1:nrow(P)){
+      P_rot[i,]=(P[i,]*cos(theta))+(as.numeric(xprod(k_rot,P[i,]))*sin(theta))+(k_rot*dot(k_rot,P[i,])*(1-cos(theta)))
     }
-    return(sample_dat)
+  }else(P_rot=P)
+  
+  return(P_rot)
+}
+
+fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE){
+  #stem: A data.frame which contains a list called 'PointsInStem' which has the 'X' , 'Y' ,& 'Z' coordinates for each point in the stem
+  #thresh: distance from cylinder hull which is considered an inlier
+  #prob: the probability at least one random selection is error free of set n points
+  #w: the probability selected data is within error tolerance
+  
+  temp_cent=stem%>%fit_circle(method='LM') #get a roughly fitted center by fitting a circle using 'LM' method
+  
+  pts=stem$PointsInStem[[1]][,1:3]%>% 
+    transmute(x_data=X,y_data=Y,z_data=Z)%>% #reshape data into necessary headings
+    mutate(x_data=(x_data-temp_cent[[1]])*100,y_data=(y_data-temp_cent[[2]])*100)#normalize the point coordinates about the circle fitted center
+ 
+  Ek<-w^-3 #expected value of k (which should be exceeded by 2-3 SD of k...thus probabilistic k is determined below)
+  
+  k= (log(1-prob)) / (log(1-(1-w)^3)) #Number of iterations, constrained by probability that the generated model is accurate '3' is number of samples
+  k<-k*Ek #k ~ = probablistic k * expected value of k 
+  
+  n_points=nrow(pts) #returns dimension of the pts dataset being loaded (proba dataframe which means this fucntion should be changes)
+  best_inliers=NA
+  outputdat=data.frame("cx"=NA,"cy"=NA,"radius"=NA,"cz"=NA)
+  
+  #Plot initial point data being fitted
+  if(plot){
+    plot(pts$x_data,pts$y_data,asp=1)
   }
   
-  make_model<-function(sample_dat){
-    pt1=sample_dat[1,]
-    pt2=sample_dat[2,]
-    pt3=sample_dat[3,]
+  #Iteratively solve for Circle Params
+  for(it in 1:k){
     
-    #perform matrix algebra to calculate A,B,C matrices to determine centroid of circle
-    A=cbind( c( pt2[[1]]-pt1[[1]] , pt2[[2]]-pt1[[2]]) , c(pt3[[1]]-pt2[[1]] , pt3[[2]]-pt2[[2]]) )
-    B=rbind( c(pt2[[1]]^2-pt1[[1]]^2 + pt2[[2]]^2-pt1[[2]]^2) , c(pt3[[1]]^2-pt2[[1]]^2+pt3[[2]]^2-pt2[[2]]^2) )
-    inv_A=solve(A) #calcualtes inverse of matrix 'A'
+    sample_indices=sample(nrow(pts),size=3) #randomly select a number from the length of the point dataset to extract those x/y coords
+    sample_dat=pts[sample_indices,]
+    ptsmpl=sample_dat
     
-    c_x=(inv_A %*% B)/2 #dot product
-    c_y=(inv_A %*% B)/2
-    c_x=c_x[1,] #centroid x-coord
-    c_y=c_y[2,] #centroid y-coord
+    #Determine plane which describes the 3 points sampled
+    #A=pt2-pt1
+    #B=pt3-pt1
     
-    r=sqrt((c_x-pt1[[1]])^2 + (c_y-pt1[[2]])^2) #radius
+    vecA=as.numeric(ptsmpl[2,]-ptsmpl[1,]) #Generates Vector A between points 2 & 1
+    vecA_norm=vecA/norm(vecA,type="2")
+    vecB=as.numeric(ptsmpl[3,]-ptsmpl[1,])
+    vecB_norm=vecB/norm(vecB,type="2")
     
-    return(data.frame('c_x'=c_x , 'c_y'=c_y , 'r'=r))
-  }
-  
-  eval_model<-function(sample_dat,model_dat){
-    d=0
-    c_x=model_dat$c_x
-    c_y=model_dat$c_y
-    r=model_dat$r
+    #Cross product of vecA and vecB results in vecC which is normal to plane
+    vecC=xprod(vecA_norm,vecB_norm) #Uses a 'cross product' function which is used for physics based modelling of 3D vectors
+    vecC=vecC/norm(vecC,type="2")
     
-    for(i in 1:nrow(sample_dat)){ #may need to adjust to fix loop length
-      dis=sqrt( (sample_dat$x_data[i]-c_x)^2 + (sample_dat$y_data[i]-c_y)^2 ) #problem here? warning message
-      
-      if(dis >= r){
-        d= d+(dis-r)
+    kplane=-sum(vecC*ptsmpl[2,])
+    plane_eq=c(vecC[1],vecC[2],vecC[3],kplane)
+    
+    #Calculate rotaion of points with rodrigues rotation eq.
+    n1_rot=as.numeric(c(0,0,1))
+    P_rot=rodrigues_rot(ptsmpl,vecC,n1_rot)
+    
+    #Find center from 3 points & intersecting lines with these points and 'center'
+    ma=0
+    mb=0
+    while(ma==0){
+      ma=(P_rot[2,2]-P_rot[1,2])/(P_rot[2,1]-P_rot[1,1]) # (y2-y1) / (x2-x1)
+      mb=(P_rot[3,2]-P_rot[2,2])/(P_rot[3,1]-P_rot[2,1]) # (y3-y2) / (x3-x2)
+      if(ma==0){
+        P_rot=c(tail(P_rot,-1),head(P_rot,1)) #equivalent to np.roll -1 (This rearranges point order if an two points are considered a vertical line)
+      }else(break)
+    }
+    
+    #Calculate center by verifying intersection of orthogonal lines
+    p_center_x=(ma*mb*(P_rot[1,2]-P_rot[3,2])+mb*(P_rot[1,1]+P_rot[2,1])-ma*(P_rot[2,1]+P_rot[3,1]))/(2*(mb-ma))
+    p_center_y=-1/(ma)*(p_center_x-(P_rot[1,1]+P_rot[2,1])/2)+(P_rot[1,2]+P_rot[2,2])/2
+    p_center=c('x_data'=p_center_x,'y_data'=p_center_y,'z_data'=0)
+    radius=norm(p_center-P_rot[1,],type="2") #Radius is the distance from the center to the first rotation point
+    
+    #Recalc Rodrigues rotation
+    center=rodrigues_rot(p_center,n1_rot,vecC)
+    
+    
+    #Distance from a point to the circle's plane
+    dist_pt_plane=(plane_eq[1]*pts[,1]+plane_eq[2]*pts[,2]+plane_eq[3]*pts[,3]+plane_eq[4])/sqrt(plane_eq[1]^2+plane_eq[2]^2+plane_eq[3]^2)
+    #vecC_stakado=matrix(vecC, ncol=3, nrow=n_points, byrow=TRUE)
+    vecC_stakado=vecC
+    
+    #distance from a point to the circle hull if as its perpendicular to plane
+    dist_pt_inf_circle=list()
+    
+    tempdat=center-pts
+    tempdf=data.frame(xprod(vecC,tempdat))
+    func<-function(x){
+      norm(x,'2')-radius
+    }
+    dist_pt_inf_circle=apply(tempdf,MARGIN=1,FUN=func)
+    
+    #distance from each point to the circle
+    dist_pt=matrix(sqrt((dist_pt_inf_circle^2)+(dist_pt_plane^2)))
+    
+    
+    
+    #select indices where distance is greater than threshold
+    #Distance from a point to a line
+    pt_id_inliers=c(which(dist_pt<=thresh)) #Search each column and if any row has a value under the threshold, it is an inlier and get index
+    
+    
+    if(is.null(nrow(best_inliers))){ #If initial run, then set params to default to initial calc
+      best_inliers=pts[pt_id_inliers,]
+      outputdat=mutate(outputdat,cx=center[1],cy=center[2],radius=radius,
+                       cz=center[3],
+                       Axis=list(vecC),
+                       inliers=list(best_inliers))
+      if(plot){
+        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius,col=NA,border='red')
       }
-      else{ d=d+(r-dis) }
     }
-    
-    return(d)
-  }
-  
-  fitted_RANSAC=data.frame('c_x'=NA,'c_y'=NA,'r'=NA,'clusid'=NA)
-  for( i in 1:length(hulls)){
-    SingleTree_points = intersect(points,hulls[i,]) #isolate a singular tree's set of points
-    SingleTree_points<-data.frame('x_data'=SingleTree_points$X,'y_data'=SingleTree_points$Y)
-    
-    if(plot){
-      plot(SingleTree_points$x_data,SingleTree_points$y_data,asp=1)
-    }
-    
-    d_min=99999 #initialize a default values which will be iteratively improved upon for each tree
-    best_model=NA
-    
-    Ek<-w^-numsample #expected value of k (which should be exceeded by 2-3 SD of k...thus probabilistic k is determined below)
-    
-    k= (log(1-prob)) / (log(1-(1-w)^numsample)) #Number of iterations, constrained by probability that the generated model is accurate
-    k<-k*Ek #k ~ = probablistic k * expected value of k 
-    
-    
-    for(j in 1:k){ #n should be calculated optimally for a .95 percentile...this is how many times to try to calc the optimal circle
-      sample_dat=random_sample(SingleTree_points,numsample)
-      model_dat=make_model(sample_dat)
-      d_temp=eval_model(sample_dat,model_dat)
+    else if(length(pt_id_inliers) > nrow(best_inliers) & !is.null(best_inliers)){ #If subsequent runs, 'recalc' / store new values if there are more inliers than previous random samples
+      best_inliers=pts[pt_id_inliers,]
+      outputdat[1,1:2]=center[1:2]
+      outputdat$radius=radius
+      outputdat[1,4]=center[3]
+      outputdat$axis=list(vecC)
+      outputdat$inliers=list(best_inliers)
       
-      if(d_min>d_temp){ #if current model is better than previous model, then update the model
-        best_model=model_dat
-        d_min=d_temp
-        if(plot){
-          draw.circle(best_model$c_x,best_model$c_y,best_model$r)
-        }
+      if(plot){
+        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius,col=NA,border='red')
       }
     }
-    fitted_RANSAC[i,]<-c(best_model$c_x,best_model$c_y,best_model$r,hulls[i,]$id)
   }
-  return(fitted_RANSAC)
+  
+  #Plot 'Final' solution
+  if(plot){
+    draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius,col=NA,border='green')
+  }
+  #Output final solution
+  return(outputdat)
 }
 
 conv2_polar<-function(points_df,Fitted_CircleData,hulls,plot=FALSE){
@@ -353,7 +426,7 @@ calc_arclength<-function(fouriercurve_df,polarcord_data){
   return(fourier_dbh)
 }
 
-multislice_process<-function(stems,method,additional_args=FALSE,plot_args=FALSE,numslice=7){
+multislice_process<-function(stems,method,...,numslice=7){
   #A function which will allow the user to define the number of slices with which the main slice should be divided into.
   #This method will average the multiple slice diams together for each respective stem
   ave_diam=NA
@@ -375,7 +448,7 @@ multislice_process<-function(stems,method,additional_args=FALSE,plot_args=FALSE,
       stem_df$PointsInStem=list(filter(stems$PointsInStem[[i]],Z>=lowerBounds & Z<=upperBounds)) #get subslice of points for each tree
       
       if(!is.null(stem_df$PointsInStem[[1]]$X) & nrow(stem_df$PointsInStem[[1]])>=4){ #Ensures that whatever method is being run will have at least 4 points per subslice to define a model
-        diam_list[[k]]=method(stem_df,additional_args,plot_args)[3]
+        diam_list[[k]]=method(stem_df,...,)[[3]]
       }else(diam_list[[k]]=NA)
       
     }
@@ -385,13 +458,10 @@ multislice_process<-function(stems,method,additional_args=FALSE,plot_args=FALSE,
   return(ave_diam)
 }
 
-
-ooga<-function(dat,somearg=NA){
-  print(sum(dat))
-  if(!is.na(somearg)){
-    print("somearg works")
+tempdat<-c(1,2,3)
+ooga<-function(dat,...){
+  print(sum(dat))  
   }
-}
 
 testfunc<-function(dat,method,add_args){
   print("loaded data")
