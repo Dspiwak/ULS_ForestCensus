@@ -157,8 +157,8 @@ server<-function(input,output,session){
         geom_sf(data=allbuffs,fill='blue')+#add layer for gtruth buffers
         geom_sf(data=selectedbuffs,fill='green')+#add layer for highlighted (selected) gtruth buffers
         coord_sf(datum=st_crs(data$importfile), #sets projection of the ggplot graph
-          xlim=c((st_bbox(data$importfile[featnum(),])$xmin)-2,(st_bbox(data$importfile[featnum(),])$xmax)+2), #edits the extents of the graph
-          ylim=c((st_bbox(data$importfile[featnum(),])$ymin)-2,(st_bbox(data$importfile[featnum(),])$ymax)+2))
+          xlim=c((st_bbox(data$importfile[featnum(),])$xmin)-4,(st_bbox(data$importfile[featnum(),])$xmax)+4), #edits the extents of the graph
+          ylim=c((st_bbox(data$importfile[featnum(),])$ymin)-4,(st_bbox(data$importfile[featnum(),])$ymax)+4))
         
       map
     })
@@ -180,7 +180,11 @@ server<-function(input,output,session){
                       Gtruth_dbh_cm=as.numeric(),
                       Gtruth_NADX=as.numeric(),
                       Gtruth_NADY=as.numeric(),
-                      Chull_diam=as.numeric(),
+                      ULS_ID=as.numeric(),
+                      ConvH=as.numeric(),
+                      Circle_Pratt=as.numeric(),
+                      Circle_LM=as.numeric(),
+                      Circle_RANSAC=as.numeric(),
                       Confidence=as.integer(),
                       iteration=as.numeric())
     
@@ -191,7 +195,11 @@ server<-function(input,output,session){
                         Gtruth_dbh_cm=vals$truths$dbh_cm,
                         Gtruth_NADX=vals$truths$NADX,
                         Gtruth_NADY=vals$truths$NADY,
-                        Chull_diam=vals$chulls$diam,
+                        ULS_ID=vals$chulls$StemID,
+                        ConvH=vals$chulls$ConvH,
+                        Circle_Pratt=vals$chulls$Crcl_Pr,
+                        Circle_LM=vals$chulls$Crcl_LM,
+                        Circle_RANSAC=vals$chulls$C_RANSA,
                         Confidence=sliderValues()$Value,
                         iteration=featnum()-1)
         df$dt<-rbind(df$dt,row) #binds the row to reactive dataframe
