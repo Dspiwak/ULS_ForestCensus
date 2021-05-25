@@ -32,7 +32,8 @@ source("Scripts/Stem_reconstructions.R")
 
 LiDAR_structure_check("/Processed_Data")
 preprocessed_las<-list.files(path=paste0(wd,"/Raw_Data"),pattern=".laz")
-clipregion<-testarea
+#clipregion<-testarea #This is a small .5ha 'test area' which the bulk of this processing was built apon and later expanded to the fullsize
+clipregion<-Fullscan
 cliptruth<-intersect(Ground.Truth,clipregion)
 
 if(length(preprocessed_las)>1){ #checks if only 1 .las file or many, currently only implemented for 1 scan file
@@ -71,11 +72,13 @@ for(i in 1:length(chunks_with_points)){
 
 stems<-resolve_stems(chunked_hulls) #will "resolve" chunking of convex hulls...but rewrites / recalcs the dbh data
 
-#Fullslice Circle Fitting
-Fitted_CirclePratt<-fit_circle(stems,method='Pratt',plot=TRUE) 
+#####
+##### Stem Reconstructions ( Convexhull Fitting and Circle Fitting ) ----------
 
-Fitted_CircleLM<-fit_circle(stems,method='LM',plot=TRUE) 
-
+#Single Stem Fullslice Fitting for demonstration
+Fitted_CirclePratt<-fit_circle(stems[1,],method='Pratt') 
+Fitted_CircleLM<-fit_circle(stems[1,],method='LM') 
+Fitted_Ransac_Circles<-fit_RANSAC(stems[90,],thresh = .5,.95,.5)
 
 #Multislice Fitting (Needs "vertical profile ggplot)
 stems$ConvH<-multislice_process(stems,fit_convhull) #Convex Hull approach
@@ -84,115 +87,67 @@ stems$Circle_Pratt<-multislice_process(stems,fit_circle,"Pratt")#Pratt Circle Fi
 
 stems$Circle_LM<-multislice_process(stems,fit_circle,"LM")#Reduced Levenberg-Marquardt Method
 
-
 #RANSAC Fitting
-Fitted_Ransac_Circles<-RANSAC_circle(points_df,stems,.95,.5,3)
-
-#Fourier Curve Fitting
-Adjusted_CoordData<-conv2_polar(points_df,Fitted_CircleData,stems)
-for(i in 1:8){
-  dat<-Adjusted_CoordData[[1]][[i]]
-  res<-fit_fourier(dat,n=8,up=10,plot=TRUE) #maximum value of harmonics is nrow(dat)-2 (wang et all set this to 8 / 3 depending on AOI)
-}
-
-
-
-#Testing fourier fitting 1
-Test_FourierDat<-data.frame(dist=c(1,2,2,2,3,4,5,2,1),azimuth=(seq(-pi,pi,length.out=length(Test_FourierDat$dist))))
-res<-fit_fourier(Test_FourierDat,n=3,up=10,plot=TRUE)
-
-plot(Test_FourierDat$azimuth,Test_FourierDat$dist)
-lines(res$time,res$y,col='red')
-lines(Test_FourierDat$azimuth,blek,col='blue')
-
-
-
-#Testing fourier fitting 2 (tree model)
-#Test_FourierDatApp<-read.csv(paste0(getwd(),"/Processed_Data/TestFourierSeries")) #Challenge Tree with all cases
-Test_FourierDatApp<-read.csv(paste0(getwd(),"/Processed_Data/TestTree_OptimalTree"))
-temp<-chull(Test_FourierDatApp)
-Test_FourierDatApp_Hull<-Test_FourierDatApp[c(temp,temp[1]),]
-testchull<-SpatialPolygons(list(Polygons(list(Polygon(Test_FourierDatApp_Hull)),ID=1)))
-testchull$id<-1
-coordinates(Test_FourierDatApp)<-c("x","y")
-mockdat<-data.frame(seq(1:length(Test_FourierDatApp)))
-spdf<-SpatialPointsDataFrame(coords=Test_FourierDatApp,data=mockdat)
-spdf$X<-spdf$x
-spdf$Y<-spdf$y
-#testcircdat<-data.frame("cx"=14.0,"cy"=10.06554,"radius"=7.205898) #original cx=5.434675 / cy=13.06554 (ONLY FOR CHALLANGE TREE)
-testcircdat<-fit_circle(spdf,hulls = testchull)
-#coordinates(testcircdat)<-c("cx","cy")
-testpolar<-conv2_polar(spdf,testcircdat,testchull,plot=TRUE)
-res2<-fit_fourier(testpolar[[1]][[1]],n=2,up=10,plot=TRUE)
-
-testfit_in<-testpolar[[1]][[1]]$dist
-testfit_out<-fft(testfit_in)
-barplot(Mod(testfit_out[2:(length(testfit_in)/2+1)]),main='Supposed "Energy" of Harmonics')
-
-
-#testmod<-lm(testpolar[[1]][[1]]$azimuth+testpolar[[1]][[1]]$dist~res2$time+res2$y)
-testpolarcleaned<-remove_fourieroutliers(res2,testpolar[[1]][[1]])
-
-calc_arclength(res2,testpolar[[1]][[1]])
-
-temppolarplot<-ggplot()+
-  geom_point(data=testpolar[[1]][[1]],aes(azimuth,dist))+
-  coord_polar(theta="x",direction=-1,start=pi/2)+
-  scale_y_continuous(limits=c(0,max(testpolar[[1]][[1]]$dist)+.2))+
-  geom_line(data=res2,aes(time,y))+
-  geom_point(data=testpolarcleaned,aes(azimuth,dist),color='red')
-tempcartplot<-ggplot()+
-  geom_point(data=testpolar[[1]][[1]],aes(azimuth,dist))+
-  geom_line(data=res2,aes(time,y))+
-  geom_point(data=testpolarcleaned,aes(azimuth,dist),color='red')+
-  scale_y_continuous(limits=c(0,max(testpolar[[1]][[1]]$dist)+.05))
-grid.arrange(tempcartplot,temppolarplot,ncol=2)
-
-#write.csv(res2,file='C:/Users/note2/Documents/GitHub/ULS_ForestCensus/Processed_Data/Example_FourierCurve_Data.csv')
-#writeOGR(hulls,dsn=getwd(),layer=paste0(deparse(substitute(hulls)),"__TestCheck__AutomatedOuput"),driver="ESRI Shapefile",overwrite_layer=TRUE)
-
-
-plot(res$time,res$y)
-
-# ggplot(data=AdjustedCoords,aes(azimuth,dist))+
-#   geom_point()+
-#   geom_line(data=res,aes(time,y))
+stems$Circle_RANSAC<-multislice_process(stems,fit_RANSAC,thresh=.5,prob=.95,w=.5)
 
 
 #####
-##### LiDAR Processing ( Convex Hulls / Fourier Transform / Matching) ----------
+##### Matching & Producing Product to Assess Accuracy ----------
 source("Scripts/Stem_matching.R")
-#A temporary fix (will need to re-write the ID somehow)
-hulls$clusid<-c(1:length(hulls))
-matched_stems<-match_stems(stems,cliptruth,2.5)
 
+#Automated Matching
+matched_stems<-match_stems(stems,cliptruth,2.5)#double check this is using the correct ground truth (without dead stems)
+
+#Convert to traditional SPDF and Export for Manual Matching
+stems_spdf<-conv2_spdf(stems)
+if(!file.exists("Processed_Data/Exported_Stem_Data.shp")){
+  writeOGR(stems_spdf,"Processed_Data","Exported_Stem_Data","ESRI Shapefile",)
+}
+if(!file.exists("Processed_Data/Exported_GTruth_Data.shp")){
+  Buffered_truth<-gBuffer(cliptruth,byid=TRUE,width=cliptruth$rbh_m)
+  writeOGR(Buffered_truth,"Processed_Data","Exported_GTruth_Data","ESRI Shapefile")
+}
 
 #####
 ##### Stat. Analyses
 source("Scripts/Stats_Outputs.R")
 
-measures<-list("ConvH","Circle_Pratt","Circle_LM")
-stats<-basic_stats(cliptruth,stems,matched_stems,measures)
+Matched_Stems<-read.csv("Processed_Data/Manually_Matched_Trees_Dataset_AllStems.csv")%>% #If manually matched
+  filter(Confidence>1)
+Matched_Stems<-data.frame(matched_stems)#If automatically matched
 
-plot_regression(matched_stems$dbh_cm,matched_stems$ConvH)
-plot_regression(matched_stems$dbh_cm,matched_stems$Circle_Pratt)
-plot_regression(matched_stems$dbh_cm,matched_stems$Circle_LM)
+#Methods to check
+measures<-list("ConvH","Circle_Pratt","Circle_LM","Circle_RANSAC")
 
-lin_model<-lm(matched_stems$ConvH~matched_stems$dbh_cm)
-plot(lin_model)
+#General Statistics (MAE, RMSE, Pearson's Correlation, Total Detection, etc. )
+stats<-basic_stats(cliptruth,stems_spdf,Matched_Stems,measures)
+
+#General Regressions
+plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$ConvH)
+plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$Circle_Pratt)
+plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$Circle_LM)
+plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$Circle_RANSAC)
+
+#General Statistics
+
+statdf<-data.frame(DBH=Matched_Stems$Gtruth_dbh_cm,
+                   ConvH=Matched_Stems$ConvH,
+                   Pratt=Matched_Stems$Circle_Pratt,
+                   LM=Matched_Stems$Circle_LM,
+                   RANSAC=Matched_Stems$Circle_RANSAC)%>%
+  mutate(bin=cut_width(DBH,width=10,boundary=0))
+
+#BIAS Boxplots
+
+Biases<-calc_bias(statdf,10,plot=TRUE)
+
+#MAE Plots
+MAEs<-calc_MAE(statdf,plot=TRUE)
 
 
 
 
-
-
-
-
-
-
-
-
-
+#extra binned count histograms (not working yet)
 temphistdat<-as.data.frame(matched_stems)
 bucket<-list(chull_dbh=temphistdat$chull_dbh_cm,truth_dbh=temphistdat$dbh_cm)
 p2<-ggplot(melt(bucket),aes(value,fill=L1))+
