@@ -51,7 +51,7 @@ get.elbow.points.indices<-function(x,y,threshold){
   return(indices)
 }
 
-auto_EPS<-function(df,minpnts,threshold){
+auto_EPS<-function(df,minpnts,threshold,plot=FALSE){
   temp<-kNNdist(df,k=minpnts,all=TRUE) #distances of the knn of any selected point within dataset
   index<-as.numeric(rownames(data.frame(temp)))
   val<-rowMeans(temp)
@@ -60,11 +60,14 @@ auto_EPS<-function(df,minpnts,threshold){
     mutate(index=row_number(y))
   indices<-get.elbow.points.indices(temp$index,temp$y,threshold) #detects the "knee" of the data based on 2nd derivative
   crit_points<<-data.frame("x"=temp$index[indices],"y"=temp$y[indices])
-  p<<-ggplot(data=temp,aes(x=index,y=y))+ #allows the data to be plotable
-    geom_point()+
-    geom_point(data=crit_points,aes(x=x,y=y),color="red")+
-    geom_hline(aes(yintercept=min(crit_points$y)),color="blue",linetype="dashed")+
-    geom_text(aes(0,min(crit_points$y),label=min(crit_points$y),vjust=-.6),hjust=-2)
+  if(plot){
+    knee_plot=ggplot(data=temp,aes(x=index,y=y))+ #allows the data to be plotable
+      geom_point()+
+      geom_point(data=crit_points,aes(x=x,y=y),color="red")+
+      geom_hline(aes(yintercept=min(crit_points$y)),color="blue",linetype="dashed")+
+      geom_text(aes(0,min(crit_points$y),label=min(crit_points$y),vjust=-.6),hjust=-2)
+    print(knee_plot)
+  }
   return(min(crit_points$y))
 }
 
