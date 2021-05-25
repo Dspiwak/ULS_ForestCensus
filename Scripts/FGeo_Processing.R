@@ -17,7 +17,7 @@ grid2nad83<-function(x,y){
 }
 
 ## DF processing and conversion to spatial points
-Smallest.Tree.Size<-12 #cm DBH
+Smallest.Tree.Size<-18 #cm DBH
 loclist<-grid2nad83(file$gx,file$gy)
 Ground.Truth<-file
 Ground.Truth$dbh[Ground.Truth$dbh==0]<-NA
