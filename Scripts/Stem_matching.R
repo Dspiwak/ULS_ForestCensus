@@ -1,4 +1,4 @@
-match_stems<-function(stems,Gtruth,DetectionRange){
+match_stems<-function(stems,GTruth,DetectionRange){
   #A function which will match clustered LiDAR data to GroundTruth points based on distance to centroid 
   #A "faux" 2-knn approach which relies on a search area "DetectionRange" that will be focused on to attempt to match stems
   
@@ -17,7 +17,7 @@ match_stems<-function(stems,Gtruth,DetectionRange){
   chulllist=do.call(bind,chulllist)
   loop_polys=SpatialPolygonsDataFrame(Sr=chulllist,data=ids,FALSE)
   stem_dat=stems%>%
-    select(-PointsInStem)%>%
+    dplyr::select(-PointsInStem)%>%
     mutate(StemID=as.integer(StemID))
   polys=loop_polys
   ids=loop_polys$StemID
@@ -141,4 +141,18 @@ match_stems<-function(stems,Gtruth,DetectionRange){
   crs(matched_trees)<-NAD83_2011
   
   return(matched_trees)
+}
+
+conv2_spdf<-function(stems){
+  polylist<-list() #create a temporary list which will be populated by polygons
+  for(i in 1:nrow(stems)){
+    tempcoords<-stems$PointsInStem[[i]] #get 1 row of data from 'stems' nested dataframe
+    coordinates(tempcoords)<-c("X","Y")
+    crs(tempcoords)<-SetCRS
+    polylist[[i]]<-gConvexHull(tempcoords) #assign the convex hull as the shape of the polygon
+  }
+  polys<-do.call(bind,polylist)#bind the list to a 'SpatialPolygons' which is digestible to the next line
+  tempspdf<-SpatialPolygonsDataFrame(polys,data=stems%>%select(-PointsInStem)%>%mutate(StemID=as.numeric(StemID))) #create the SPDF and bring in the additional columns
+  
+  return(tempspdf)
 }
