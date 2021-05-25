@@ -68,7 +68,7 @@ conv_hulls<-function(clusters_df,plot=FALSE){
   return(polys)
 }
 
-fit_convhull<-function(stem,quantile,plot=FALSE){
+fit_convhull<-function(stem,plot=FALSE){
   #Fits a convex hull to a set of data and will calculate average distance from gravity center to convex hull points
   
   
@@ -82,8 +82,8 @@ fit_convhull<-function(stem,quantile,plot=FALSE){
   cent<-gCentroid(stem_info)
   rDists<-spDistsN1(chull_coords,cent,longlat=FALSE)
   
-  quantile_dists=spDistsN1(stem_info,cent,longlat=FALSE)
-  quantile_dists=quantile_dists*quantile
+  #quantile_dists=spDistsN1(stem_info,cent,longlat=FALSE) #calculate quantile distances if a the user only wants to use a set of data within a specific stdev. of centroid
+  #quantile_dists=quantile_dists*quantile
   
   dat=c( cent$x, cent$y , mean(rDists)*2*100, stem$StemID) #write to DF (*100 * 2 converts to cm & diam)
   
@@ -173,7 +173,7 @@ rodrigues_rot<-function(P,n0,n1){
   return(P_rot)
 }
 
-fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE){
+fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE,Draw3D=FALSE){
   #stem: A data.frame which contains a list called 'PointsInStem' which has the 'X' , 'Y' ,& 'Z' coordinates for each point in the stem
   #thresh: distance from cylinder hull which is considered an inlier
   #prob: the probability at least one random selection is error free of set n points
@@ -227,6 +227,7 @@ fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE){
     P_rot=rodrigues_rot(ptsmpl,vecC,n1_rot)
     
     #Find center from 3 points & intersecting lines with these points and 'center'
+    tryCatch({
     ma=0
     mb=0
     while(ma==0){
@@ -242,6 +243,9 @@ fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE){
     p_center_y=-1/(ma)*(p_center_x-(P_rot[1,1]+P_rot[2,1])/2)+(P_rot[1,2]+P_rot[2,2])/2
     p_center=c('x_data'=p_center_x,'y_data'=p_center_y,'z_data'=0)
     radius=norm(p_center-P_rot[1,],type="2") #Radius is the distance from the center to the first rotation point
+    },
+    error= function(e){print(paste0(P_rot))}
+    )
     
     #Recalc Rodrigues rotation
     center=rodrigues_rot(p_center,n1_rot,vecC)
@@ -274,38 +278,56 @@ fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE){
     
     if(is.null(nrow(best_inliers))){ #If initial run, then set params to default to initial calc
       best_inliers=pts[pt_id_inliers,]
-      outputdat=mutate(outputdat,cx=center[1],cy=center[2],radius=radius,
+      outputdat=mutate(outputdat,cx=center[1],cy=center[2],radius=radius*2,
                        cz=center[3],
                        Axis=list(vecC),
                        inliers=list(best_inliers))
       if(plot){
-        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius,col=NA,border='red')
+        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius/2,col=NA,border='red')
       }
     }
     else if(length(pt_id_inliers) > nrow(best_inliers) & !is.null(best_inliers)){ #If subsequent runs, 'recalc' / store new values if there are more inliers than previous random samples
       best_inliers=pts[pt_id_inliers,]
       outputdat[1,1:2]=center[1:2]
-      outputdat$radius=radius
+      outputdat$radius=radius*2
       outputdat[1,4]=center[3]
       outputdat$axis=list(vecC)
       outputdat$inliers=list(best_inliers)
       
       if(plot){
-        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius,col=NA,border='red')
+        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius/2,col=NA,border='red')
       }
     }
   }
   
   #Plot 'Final' solution
   if(plot){
-    draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius,col=NA,border='green')
+    draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius/2,col=NA,border='green')
+  }
+  if(Draw3D){
+    zlim=range(pts$z_data)
+    zlen=zlim[2]-zlim[1]+1
+    
+    colorlut=rainbow(zlen)
+    colrs=colorlut[pts$z_data]
+    
+    
+    rgl::plot3d(pts$x_data,pts$y_data,pts$z_data,col=colrs)
+    n <- 300
+    theta <- seq(0, 2*pi, len=n)
+    x <- cos(theta)
+    y <- sin(theta)
+    z <- rep(0, n)
+    lines3d(x,y,z)
+    
+    aspect3d(1,1,1)
   }
   #Output final solution
   return(outputdat)
 }
 
 conv2_polar<-function(points_df,Fitted_CircleData,hulls,plot=FALSE){
-  polar_points_dfls<-data.frame("dfs"=matrix(NA,ncol=1,nrow=length(hulls)))
+  polar_points_dfls<-data.frame("dfs"=matrix(NA,ncol=1,nrow=nrow(stems)))
   for(i in 1:length(hulls)){
     minibuff_hull<-gBuffer(hulls[i,],width=0.1) #must make a small buffer around the chull because points along the boundary will not be "detected" with the intersection
     SingleTree_points<-intersect(points_df,minibuff_hull)
@@ -414,8 +436,10 @@ remove_fourieroutliers<-function(fouriercurve_df,polarcord_data){
 calc_arclength<-function(fouriercurve_df,polarcord_data){
   arclength=list()
   for(i in 1:length(fouriercurve_df$y)-1){#calculate arc length given a dataframe with datapoints along a fourier curve
-    arclength[i]=sqrt((fouriercurve_df$y[i]^2+fouriercurve_df$y[i+1]^2)+
-                        (2*fouriercurve_df$y[i]*fouriercurve_df$y[i+1]*cos(fouriercurve_df$time[i]-fouriercurve_df$time[i+1])))
+    x=
+    dxdtheta
+    dydtheta
+    arclength[i]=2
   }
   arclength=do.call(sum,arclength)
   
@@ -429,45 +453,42 @@ calc_arclength<-function(fouriercurve_df,polarcord_data){
 multislice_process<-function(stems,method,...,numslice=7){
   #A function which will allow the user to define the number of slices with which the main slice should be divided into.
   #This method will average the multiple slice diams together for each respective stem
+  #Minimum slice interval is 10cm
   ave_diam=NA
   
-  sliceHbins=seq( round(min(stems$PointsInStem[[1]]$Z)) , round(max(stems$PointsInStem[[1]]$Z)) , length.out=numslice) #sequence of sub slice heights
-  
-  
-  for( i in 1:nrow(stems)){
-    stem_df<-data.frame('PointsInStem'=matrix(NA,ncol=1,nrow=1)) #temporary dataframe which holds subslice datapoints
+  for( i in 1:nrow(stems)){ #Loop through all stems passed to function
     
-    diam_list=NA#temporary list of diameters to calculate average for the singular stem across multiple sub slices
-    
-    for(k in 1:(numslice-1)){
-      #set a upper and lower bounds to filter out data to fulfill each subslice req. Z
-      lowerBounds=sliceHbins[[k]]
-      upperBounds=sliceHbins[[k+1]]
+    checkdiam=NA#Initialize a 'check' value to NA for while loop per-stem
+
+        while(is.na(checkdiam)){ #For each stem, run until returns not NA & reduces number of slices per run
+      
+      sliceHbins=seq( round(min(stems[i,]$PointsInStem[[1]]$Z),1) , round(max(stems[i,]$PointsInStem[[1]]$Z),1) , length.out=numslice) #sequence of sub slice heights
+      stem_df<-data.frame('PointsInStem'=matrix(NA,ncol=1,nrow=1)) #temporary dataframe which holds subslice datapoints
+      
+      diam_list=NA#temporary list of diameters to calculate average for the singular stem across multiple sub slices
+      
+      for(k in 1:(numslice-1)){
+        #set a upper and lower bounds to filter out data to fulfill each subslice req. Z
+        lowerBounds=sliceHbins[[k]]
+        upperBounds=sliceHbins[[k+1]]
+        
+        stem_df$PointsInStem=list(filter(stems[i,]$PointsInStem[[1]],Z>=lowerBounds & Z<=upperBounds)) #get subslice of points for each tree
+        
+        if(!is.null(stem_df$PointsInStem[[1]]$X) & nrow(stem_df$PointsInStem[[1]])>=4){ #Ensures that whatever method is being run will have at least 4 points per subslice to define a model
+          diam_list[[k]]=method(stem_df,...,)[[3]]
+        }else(diam_list[[k]]=NA)
+      }
+      
+      checkdiam=mean(diam_list,na.rm=TRUE) #check the mean diameter against loop diam
       
       
-      stem_df$PointsInStem=list(filter(stems$PointsInStem[[i]],Z>=lowerBounds & Z<=upperBounds)) #get subslice of points for each tree
-      
-      if(!is.null(stem_df$PointsInStem[[1]]$X) & nrow(stem_df$PointsInStem[[1]])>=4){ #Ensures that whatever method is being run will have at least 4 points per subslice to define a model
-        diam_list[[k]]=method(stem_df,...,)[[3]]
-      }else(diam_list[[k]]=NA)
+      if(is.na(checkdiam)){
+        numslice=numslice-1
+      }else(ave_diam[[i]]=checkdiam)#append the average of the subslices to the list
       
     }
-    
-    ave_diam[[i]]=mean(diam_list,na.rm=TRUE) #append the average of the subslices to the list
   }
   return(ave_diam)
 }
-
-tempdat<-c(1,2,3)
-ooga<-function(dat,...){
-  print(sum(dat))  
-  }
-
-testfunc<-function(dat,method,add_args){
-  print("loaded data")
-  method(dat,add_args)
-  print("ran func")
-}
-
 
 
