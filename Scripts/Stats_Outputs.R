@@ -61,10 +61,10 @@ calc_bias<-function(statdf,binwidth,plot=FALSE){
   
   #Create a df to store the bias values per bin per measurement type
   biasdf<-data.frame(DBH=statdf$DBH,
-                     ConvH_Bias=statdf$DBH-statdf$ConvH,
-                     Pratt_Bias=statdf$DBH-statdf$Pratt,
-                     LM_Bias=statdf$DBH-statdf$LM,
-                     RANSAC_Bias=statdf$DBH-statdf$RANSAC)%>%
+                     ConvH_Bias=statdf$ConvH-statdf$DBH,
+                     Pratt_Bias=statdf$Pratt-statdf$DBH,
+                     LM_Bias=statdf$LM-statdf$DBH,
+                     RANSAC_Bias=statdf$RANSAC-statdf$DBH)%>%
     mutate(bin=cut_width(DBH,width=binwidth,boundary=0))#Create a field with teh respective bin index value for each row
   
   #loop through the columns of the dataframe and return a bias boxplot plot 
@@ -72,10 +72,15 @@ calc_bias<-function(statdf,binwidth,plot=FALSE){
     for(i in 1:(ncol(biasdf)-2)){
       biasplot<-biasdf%>%
         ggplot(aes(x=bin,y=biasdf[,i+1]))+
-        geom_boxplot()+
+        geom_boxplot(outlier.shape = NA)+
         ggtitle(names(biasdf)[i+1])+
         xlab("DBH (cm)")+
         ylab("Bias (cm)")
+      
+      ylim1=boxplot.stats(biasdf[,i+1],coef=3)$stats[c(1,5)]
+      
+      biasplot=biasplot+coord_cartesian(ylim=c(-110,110))
+      
       print(biasplot)
     }
   }
@@ -100,20 +105,23 @@ calc_MAE<-function(statdf,plot=FALSE){
       tempdf<-filter(statdf,bin==MAEbins[k])#Filter the input df to only include values of a specific bin at one time
       MAE[k]<-rmserr(tempdf$DBH,tempdf[,i])$mae #calc MAE
     }
-    MAE_df[[i-1]]<-MAE
+    MAE_df[[i-1]]=MAE
   }
-  MAE_df<-mutate(MAE_df,bin=unique(statdf$bin))
+  MAE_df=mutate(MAE_df,bin=unique(statdf$bin))%>%
+    mutate(stepval=ceiling(seq(from=10,to=max(as.numeric(statdf[,1])),length.out=length(unique(statdf$bin)))))%>%
+    mutate_if(is.list,as.numeric)%>%
+    select(-bin)
   
   #Plot the MAE using GGPLOT
   if(plot){
-    for(i in 1:(ncol(MAE_df)-1)){
-      MAE_plot<-ggplot(MAE_df,aes(bin,MAE_df[,i]))+
-        geom_bar(stat="identity")+
-        ggtitle(names(MAE_df)[i])+
-        xlab("DBH (cm)")+
-        ylab("MAE (cm)")
-      print(MAE_plot)
-    }
+    Molten=melt(MAE_df,id.vars="stepval")
+    MAE_plot=ggplot(Molten,aes(x=stepval,y=value,colour=variable))+
+      geom_smooth(method="loess",se=FALSE)+
+      coord_fixed()+
+      xlab("DBH (cm)")+
+      ylab("MAE (cm)")
+    print(MAE_plot)
   }
+  
   return(MAE_df)
 }
