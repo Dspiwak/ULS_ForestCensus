@@ -88,7 +88,29 @@ fit_convhull<-function(stem,plot=FALSE){
   dat=c( cent$x, cent$y , mean(rDists)*2*100, stem$StemID) #write to DF (*100 * 2 converts to cm & diam)
   
   if(plot){
-    print('function not yet implemented')
+    chullplot<-st_as_sf(chull) #convert chull to sf to plot in ggplot
+    chullpoints=data.frame(chull_coords)
+    
+    p=ggplot(data=stem$PointsInStem[[1]],aes(X,Y))+
+      geom_point(alpha=.5) #Plots LiDAR points
+    
+    #Plot segments between centroid and the convexhull vertices
+    for(i in 1:nrow(data.frame(chull_coords))){
+      segmentdat=data.frame(x1=cent$x,y1=cent$y,x2=chullpoints$x[i],y2=chullpoints$y[i])
+       p=p+
+         geom_segment(data=segmentdat,aes(x=x1,y=y1,xend=x2,yend=y2),color="red",inherit.aes=FALSE)
+    }
+    
+    p=p+geom_point(data=data.frame(cent),aes(x,y),col="blue",shape=4,size=2,stroke=2)+ #Plots centroid
+      labs(title=paste0("DBH of Tree ID: ",dat[4], #Setup title / header info
+                        "\n", round(as.numeric(dat[3]),1), " cm ",
+                        "\nMethod: Convex Hull"))+
+      xlab("Eastings (m)")+
+      ylab("Northings (m)")+
+      geom_sf(data=chullplot,colour='green',fill=NA,size=1.5,inherit.aes = FALSE)+ #plot convex hull polygon
+      geom_point(data=chullpoints,aes(x,y),color="blue")
+    
+    print(p)
   }
   return(dat)
 }
@@ -135,10 +157,14 @@ fit_circle<-function(stem,method,plot=FALSE){ #fits a circle to each of the hull
     circ=calc_circbounds(tempdat)#get a dataframe of points along circle curve
     
     p=ggplot(data=stem$PointsInStem[[1]],aes(X,Y))+
-      geom_point()+
-      coord_fixed()+ #retain aspect ratio
-      labs(title=paste0("DBH of tree ID: ",dat[4],"\n", dat[3], " cm ","\n Method:",method))+
-      geom_path(data=circ,aes(x,y),col='red') #plot circle
+      geom_point(alpha=.5)+
+      coord_equal()+ #retain aspect ratio
+      labs(title=paste0("DBH of Tree ID: ",dat[4],
+                        "\n", round(as.numeric(dat[3]),1), " cm ",
+                        "\nMethod:",method))+
+      xlab("Eastings (m)")+
+      ylab("Northings (m)")+
+      geom_path(data=circ,aes(x,y),col='green',size=1.5) #plot circle
     print(p)
   }
   #coordinates(dat)<-c("cx","cy")
@@ -196,7 +222,8 @@ fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE,Draw3D=FALSE){
   
   #Plot initial point data being fitted
   if(plot){
-    plot(pts$x_data,pts$y_data,asp=1)
+    rnsc_plot=ggplot(pts,aes(x_data,y_data))+
+      geom_point(alpha=.5)
   }
   
   #Iteratively solve for Circle Params
@@ -243,6 +270,7 @@ fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE,Draw3D=FALSE){
     p_center_y=-1/(ma)*(p_center_x-(P_rot[1,1]+P_rot[2,1])/2)+(P_rot[1,2]+P_rot[2,2])/2
     p_center=c('x_data'=p_center_x,'y_data'=p_center_y,'z_data'=0)
     radius=norm(p_center-P_rot[1,],type="2") #Radius is the distance from the center to the first rotation point
+    darad=radius #extra variable due to confusion in if statements (ignore)
     },
     error= function(e){print(paste0(P_rot))}
     )
@@ -278,31 +306,42 @@ fit_RANSAC<-function(stem,thresh=.5,prob=.95,w=.5,plot=FALSE,Draw3D=FALSE){
     
     if(is.null(nrow(best_inliers))){ #If initial run, then set params to default to initial calc
       best_inliers=pts[pt_id_inliers,]
-      outputdat=mutate(outputdat,cx=center[1],cy=center[2],radius=radius*2,
+      outputdat=mutate(outputdat,cx=center[1],cy=center[2],radius=darad*2,
                        cz=center[3],
                        Axis=list(vecC),
                        inliers=list(best_inliers))
       if(plot){
-        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius/2,col=NA,border='red')
+        rnsc_plot=rnsc_plot+
+          geom_circle(data=data.frame(outputdat),aes(x0=cx,y0=cy,r=(radius/2)),color="red",inherit.aes=FALSE)
       }
     }
     else if(length(pt_id_inliers) > nrow(best_inliers) & !is.null(best_inliers)){ #If subsequent runs, 'recalc' / store new values if there are more inliers than previous random samples
       best_inliers=pts[pt_id_inliers,]
       outputdat[1,1:2]=center[1:2]
-      outputdat$radius=radius*2
+      outputdat$radius=darad*2
       outputdat[1,4]=center[3]
       outputdat$axis=list(vecC)
       outputdat$inliers=list(best_inliers)
       
       if(plot){
-        draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius/2,col=NA,border='red')
+        rnsc_plot=rnsc_plot+
+          geom_circle(data=outputdat,aes(x0=cx,y0=cy,r=(radius/2)),color="red",inherit.aes=FALSE)
       }
     }
   }
   
   #Plot 'Final' solution
   if(plot){
-    draw.circle(outputdat$cx,outputdat$cy,radius=outputdat$radius/2,col=NA,border='green')
+     rnsc_plot=rnsc_plot+
+       geom_circle(data=outputdat,aes(x0=cx,y0=cy,r=(radius/2)),color="green",size=1.5,inherit.aes = FALSE)+ #inherit.aes required for current build of ggforce due to prior plotting of other data
+       ggtitle(paste0("DBH of Tree ID: ",as.integer(stem$StemID),
+               "\n",round(outputdat$radius,1)," cm",
+               "\nMethod: RANSAC"))+
+       xlab("X (cm)")+
+       ylab("Y (cm)")+
+       coord_equal()
+      
+      print(rnsc_plot)
   }
   if(Draw3D){
     zlim=range(pts$z_data)
