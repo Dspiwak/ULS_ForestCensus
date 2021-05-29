@@ -38,17 +38,19 @@ basic_stats<-function(GTruth,Stems,Matched_stems,Measurement_ls){
   return(stat_dat)
 }
 
-plot_regression=function(x,y){
+plot_regression=function(df,x,y){
   
   lab_str=sub(".*Matched_Stems","",deparse(substitute(y)))
   lab_str=substr(lab_str ,2, (nchar(lab_str)) )
   
-  p=ggplot(data=as.data.frame(Matched_Stems),aes_string(y,x,ymin=0,ymax=max(y),xmin=0,xmax=max(x)))+
-    geom_smooth(method="lm",formula=y~x)+
-    geom_point()+
-    coord_equal()+
-    stat_cor(label.y=max(y))+
-    stat_regline_equation(label.y=max(y)-5)+
+  p=ggplot(data=df)+
+    geom_smooth(aes_string(y,x),method="gam",formula=y~x)+
+    geom_pointdensity(aes_string(y,x))+
+    scale_color_viridis_c()+
+    coord_cartesian(xlim=c(0,quantile(df$x,.9)),
+                    ylim=c(0,quantile(df$y,.9)))+
+    #stat_cor(label.y=max(y))+
+    #stat_regline_equation(label.y=max(y)-5)+
     labs(title=paste0("Reconstruction Method: ",lab_str))+
     xlab("True DBH (cm)")+
     ylab("Predicted DBH (cm)")
@@ -110,14 +112,14 @@ calc_MAE<-function(statdf,plot=FALSE){
   MAE_df=mutate(MAE_df,bin=unique(statdf$bin))%>%
     mutate(stepval=ceiling(seq(from=10,to=max(as.numeric(statdf[,1])),length.out=length(unique(statdf$bin)))))%>%
     mutate_if(is.list,as.numeric)%>%
-    select(-bin)
+    dplyr::select(-bin)
   
   #Plot the MAE using GGPLOT
   if(plot){
-    Molten=melt(MAE_df,id.vars="stepval")
+    Molten=reshape2::melt(MAE_df,id.vars="stepval")
     MAE_plot=ggplot(Molten,aes(x=stepval,y=value,colour=variable))+
-      geom_smooth(method="loess",se=FALSE)+
-      coord_fixed()+
+      geom_smooth(method="loess",se=FALSE,formula=y~x)+
+      coord_equal()+
       xlab("DBH (cm)")+
       ylab("MAE (cm)")
     print(MAE_plot)
