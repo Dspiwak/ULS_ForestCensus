@@ -52,23 +52,32 @@ get.elbow.points.indices<-function(x,y,threshold){
 }
 
 auto_EPS<-function(df,minpnts,threshold,plot=FALSE){
-  temp<-kNNdist(df,k=minpnts,all=TRUE) #distances of the knn of any selected point within dataset
-  index<-as.numeric(rownames(data.frame(temp)))
-  val<-rowMeans(temp)
-  temp<-data.frame("x"=index,"y"=val)%>% #creates a temporary table containing the average knn distances for each point
+  temp=kNNdist(df,k=minpnts,all=TRUE) #distances of the knn of any selected point within dataset
+  index=as.numeric(rownames(data.frame(temp)))
+  val=rowMeans(temp)
+  
+  temp=data.frame("x"=index,"y"=val)%>% #creates a temporary table containing the average knn distances for each point
     arrange(desc(y))%>%
     mutate(index=row_number(y))
-  indices<-get.elbow.points.indices(temp$index,temp$y,threshold) #detects the "knee" of the data based on 2nd derivative
-  crit_points<<-data.frame("x"=temp$index[indices],"y"=temp$y[indices])
+  
+  indices=get.elbow.points.indices(temp$index,temp$y,threshold) #detects the "knee" of the data based on 2nd derivative
+  crit_points=data.frame("x"=temp$index[indices],"y"=temp$y[indices]) #df of all possible points of 'criticality'
+  min_point=data.frame("x"=min(crit_points$x),"y"=min(crit_points$y))#The elbow point (x,y)
+  
   if(plot){
     knee_plot=ggplot(data=temp,aes(x=index,y=y))+ #allows the data to be plotable
       geom_point()+
       geom_point(data=crit_points,aes(x=x,y=y),color="red")+
+      geom_point(data=min_point,aes(x=x,y=y),color="green")+
       geom_hline(aes(yintercept=min(crit_points$y)),color="blue",linetype="dashed")+
-      geom_text(aes(0,min(crit_points$y),label=min(crit_points$y),vjust=-.6),hjust=-2)
+      geom_text(aes(0,min(crit_points$y),label=min(crit_points$y),vjust=-.6),hjust=-2)+
+      ggtitle("Knee Point")+
+      xlab("Points")+
+      ylab("Distance")
     print(knee_plot)
   }
-  return(min(crit_points$y))
+  
+  return(min_point$y)
 }
 
 cluster_lidar_dbscan<-function(las_dataframe,minpnts,KnnThreshold){
