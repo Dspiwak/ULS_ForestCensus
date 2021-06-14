@@ -26,43 +26,50 @@ ui<-navbarPage(theme=shinytheme("darkly"),
   #create tab for matching stems game
   tabPanel("Match Stems",
            wellPanel(
-                  fluidRow(
-                    column(12,
-                        #Output: Table summarizing the values eneterd--
-                        plotOutput("map",click="click")),
-                  fluidRow(
-                    column(1,actionButton('inv_iterfeature','<<---- Previous Convex Hull Feature'),offset=2),
-                    column(2,radioButtons("integer","Confidence: ( 1 Low - High 5)",
-                                 c('1'=1,
-                                   '2'=2,
-                                   '3'=3,
-                                   '4'=4,
-                                   '5'=5),
-                                 inline=TRUE),offset=2),
-                    column(1,actionButton('iterfeature','Next Convex Hull Feature ---->>'),position='left',offset=1)),
-                  fluidRow(
-                    column(1,actionButton('nomatch','No Match Present (Skip)'),offset=5)),
-                  fluidRow(
-                    column(2,verbatimTextOutput("info"),offset=5)
-                    )
-                  )
-             ),
-      #first sidebar panel--
-      fluidRow(
-        column(8,
-               wellPanel(
-                 #create widget in first panel--
-                 tableOutput("MatchedTreesTable"),
-                 downloadButton('downloadData','Export Dataframe (.csv)'),
-                 useShinyjs()
-                 ),offset=2
+             fluidRow(
+               #Display of zoom buttons--
+               column(1,
+                      fluidRow(actionButton('zoomout','-'),actionButton('zoomin','+'),align='left'),offset=6)
+               ),
+             fluidRow(
+               column(12,
+                      #Display of map--
+                      plotOutput("map",click="click")
+               ),
+               #Display of iteration controls and confidence value radio buttons
+               fluidRow(
+                 column(1,actionButton('inv_iterfeature','<<---- Previous Convex Hull Feature'),offset=2),
+                 column(2,radioButtons("integer","Confidence: ( 1 Low - High 5)",
+                                       c('1'=1,
+                                         '2'=2,
+                                         '3'=3,
+                                         '4'=4,
+                                         '5'=5),
+                                       inline=TRUE),offset=2),
+                 column(1,actionButton('iterfeature','Next Convex Hull Feature ---->>'),position='left',offset=1)),
+               fluidRow(
+                 column(1,actionButton('nomatch','No Match Present (Skip)'),offset=5)),
+               fluidRow(
+                 column(2,verbatimTextOutput("info"),offset=5) #small 'quick' information table depicting the selected data
                )
-        )
-      )
+             )
+           ),
+           #first sidebar panel--
+           fluidRow(
+             column(10,
+                    wellPanel(
+                      #create widget in first panel--
+                      tableOutput("MatchedTreesTable"),
+                      align='center',
+                      downloadButton('downloadData','Export Dataframe (.csv)'),
+                      useShinyjs()
+                    ),offset=1
+             )
+           )
   )
+)
 
 ####--------------SERVER-----------------------------------------------------------------
-
 server<-function(input,output,session){
 
   #Data Importation Controls----
@@ -143,6 +150,16 @@ server<-function(input,output,session){
    observeEvent(input$Ground_Truths_Data,
      vals$buffs<-rep(TRUE,nrow(data$importfile2))#creates vector of TRUE for the #rows in the imported ground truth
    )
+   
+   #Zoom controls
+   zoomval<-reactiveVal(4)
+   observeEvent(input$zoomin,{
+     if(zoomval()>2){zoomval(zoomval()-2)}
+     else(zoomval())
+   })
+   observeEvent(input$zoomout,{
+     zoomval(zoomval()+2)
+   })
   
   #Create a ggplot 'map' that plots the currently selected feature and ground truth w/ centroids
     output$map<-renderPlot({
@@ -153,12 +170,18 @@ server<-function(input,output,session){
       selectedbuffs<-data$importfile2[!vals$buffs,,drop=FALSE]#Determines all "FALSE" buffers based on those not in vals$buffs
       
       map<-ggplot()+
-        geom_sf(data=data$importfile[featnum(),],fill='red')+#add layer for convex hulls
+        geom_sf(data=data$importfile[featnum(),],fill='red',alpha=.8)+#add layer for current convex hull
+        geom_sf(data=data$importfile%>%st_crop(
+          y=c((st_bbox(data$importfile[featnum(),])$xmin)-zoomval()-1, #xmin crop
+              (st_bbox(data$importfile[featnum(),])$ymin)-zoomval()-1,#ymin crop
+              (st_bbox(data$importfile[featnum(),])$xmax)+zoomval()+1,#xmax crop
+              (st_bbox(data$importfile[featnum(),])$ymax)+zoomval()+1))#ymax crop
+          ,fill='red',alpha=.2)+ #add layer for 'context' convex hulls (ie not current convex hulls) & crop to speed up loading of map
         geom_sf(data=allbuffs,fill='blue')+#add layer for gtruth buffers
         geom_sf(data=selectedbuffs,fill='green')+#add layer for highlighted (selected) gtruth buffers
         coord_sf(datum=st_crs(data$importfile), #sets projection of the ggplot graph
-          xlim=c((st_bbox(data$importfile[featnum(),])$xmin)-4,(st_bbox(data$importfile[featnum(),])$xmax)+4), #edits the extents of the graph
-          ylim=c((st_bbox(data$importfile[featnum(),])$ymin)-4,(st_bbox(data$importfile[featnum(),])$ymax)+4))
+          xlim=c((st_bbox(data$importfile[featnum(),])$xmin)-zoomval(),(st_bbox(data$importfile[featnum(),])$xmax)+zoomval()), #edits the extents of the graph
+          ylim=c((st_bbox(data$importfile[featnum(),])$ymin)-zoomval(),(st_bbox(data$importfile[featnum(),])$ymax)+zoomval()))
         
       map
     })
@@ -175,11 +198,11 @@ server<-function(input,output,session){
     
     #Dataframe Controls----
     df<-reactiveValues() #makes a reactive dataframe to store values during matching process
-    df$dt<-data.frame(Gtruth_ID=as.numeric(),
-                      Gtruth_SP=as.character(),
+    df$dt<-data.frame(Gtruth_treeID=as.numeric(),
+                      Gtruth_stemID=as.numeric(),
+                      Gtruth_tag=as.numeric(),
+                      Gtruth_StemTag=as.numeric(),
                       Gtruth_dbh_cm=as.numeric(),
-                      Gtruth_NADX=as.numeric(),
-                      Gtruth_NADY=as.numeric(),
                       ULS_ID=as.numeric(),
                       ConvH=as.numeric(),
                       Circle_Pratt=as.numeric(),
@@ -190,11 +213,11 @@ server<-function(input,output,session){
     
     observeEvent(input$iterfeature,{#When the iterfeature button is clicked, and if it is not the first "iteration" (no data present) it will write subsetted reactive data to this row in the dataframe
       try({if(featnum()>1 && !is.na(vals$truths$treeID)){
-        row<-data.frame(Gtruth_ID=vals$truths$treeID,#builds row
-                        Gtruth_SP=vals$truths$sp,
+        row<-data.frame(Gtruth_treeID=vals$truths$treeID,#builds row
+                        Gtruth_stemID=vals$truths$stemID,
+                        Gtruth_tag=vals$truths$tag,
+                        Gtruth_StemTag=vals$truths$StemTag,
                         Gtruth_dbh_cm=vals$truths$dbh_cm,
-                        Gtruth_NADX=vals$truths$NADX,
-                        Gtruth_NADY=vals$truths$NADY,
                         ULS_ID=vals$chulls$StemID,
                         ConvH=vals$chulls$ConvH,
                         Circle_Pratt=vals$chulls$Crcl_Pr,
