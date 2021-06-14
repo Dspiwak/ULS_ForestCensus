@@ -3,7 +3,8 @@ setup<-function(){
       "\n     Note: Some packages require 'rtools' or external github calls to specific repositories \n")
   
   required_packages<-c("raster","plyr","dplyr","rgeos","rgdal","lidR","dbscan","grDevices","sp",
-                      "approximator","mapview","ggplot2","ggpubr","grid","MeanShiftR","future","maptools","smacof","conicfit","RSEIS")
+                      "approximator","mapview","ggplot2","ggpubr","grid","MeanShiftR","future",
+                      "maptools","smacof","conicfit","RSEIS","sf","ggforce","ggpointdensity","ggrepel","patchwork")
   
   install.packages(setdiff(required_packages,rownames(installed.packages())))
   
