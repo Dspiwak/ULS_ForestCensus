@@ -37,7 +37,8 @@ basic_stats<-function(GTruth,Stems,Matched_stems,Measurement_ls){
       "\n Total stem IDs not detected:",nrow(GTruth[GTruth$stemID%!in%Matched_stems$Gtruth_stemID,]),
       "\n Total stems detected (With False Positives):",nrow(Stems),
       "\n Total stems matched:",nrow(Matched_stems),
-      "\n Total stems matched & detected (absolute):",nrow(GTruth[GTruth$stemID%in%Matched_stems$Gtruth_stemID,]),"\n",
+      "\n Total stems matched & detected (absolute):",nrow(GTruth[GTruth$stemID%in%Matched_stems$Gtruth_stemID,]),
+      "\n Number of excessively noisey stems >1.5x the max dbh in the gtruth: ",sum(rowSums(Matched_stems[,7:10]>max(GTruth$dbh_cm)*1.5)),"\n",
       
       "\n ** Note, the number of stems may not add up due to the inclusion of duplicate stemIDs...",
       "\n ** However, it may be undesirable to remove these due to detection of shared treeID values where the stem tag may differ",
@@ -58,8 +59,8 @@ plot_detected<-function(GTruth,Matched_Stems,width=10,plot_totals=FALSE,plot_per
                          paste(round((..count../tapply(..count..,..x..,sum)[as.character(..x..)]),3)*100,'%')
                          ,''),group=factor(detected),fill=factor(detected)),
         geom="label_repel",direction='y',force=0,alpha=.8,binwidth=width, show.legend=FALSE)+ #Percentage per bin per class factor
-      stat_bin(data=presencedf%>%filter(detected==0),aes(y=min(..count..)-5,label=..count..),
-               geom="label",position='identity',binwidth=width,fill='white')+ #Total number detected & matched stems per column
+      #stat_bin(data=presencedf%>%filter(detected==0),aes(y=min(..count..)-5,label=..count..),
+               #geom="label",position='identity',binwidth=width,fill='white')+ #Total number detected & matched stems per column
       #expand_limits(y=-10)+
       labs(title="Stem Detection Rates",x="DBH",y="Number of Stems Accuratly Matched")+
            #caption=paste('Total Accuratley Matched: ',nrow(Matched_Stems),'/',nrow(GTruth)))+
@@ -109,9 +110,23 @@ plot_regression<-function(df,x,y,GTruth=NULL){
   return(p)
 }
 
-calc_bias<-function(statdf,binwidth,plot=FALSE,plot_stacked=FALSE){
+calc_bias<-function(statframe,binwidth,RemoveBinsUnder=10,plot=FALSE,plot_stacked=FALSE){
   #A function which will calculate the binned biases across a dataframe containing stem measurements
   #binwidth in cm 
+  
+  #remove bins with few returns
+  selectedbins<-statframe%>%
+    dplyr::group_by(bin)%>%
+    summarise(n=n())%>%
+    filter(n>RemoveBinsUnder)
+  statdf<-statframe%>%
+    filter(bin%in%selectedbins$bin)
+  
+  
+  
+  
+  
+  
   
   #Create a df to store the bias values per bin per measurement type
   biasdf<-data.frame(DBH=statdf$DBH,
