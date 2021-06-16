@@ -50,6 +50,12 @@ chunks<-generate_chunks(clipregion,chunk_size=sqrt(5000))
 
 chunks_with_points<-intersect(chunks,points_df) #extract only the chunks that have points in them...primarily useful for testing
 
+#Display "knee in curve" graph example for a chunk
+templasdf<-intersect(points_df,chunks_with_points[4])%>%
+  data.frame()%>%
+  auto_EPS(20,0.0067,plot = TRUE)
+
+
 #Preform initial runthrough of clustering and convex hull generation of points.
 minPnts<-20
 KnnThreshold<-0.0067
@@ -76,15 +82,14 @@ stems<-resolve_stems(chunked_hulls) #will "resolve" chunking of convex hulls...b
 ##### Stem Reconstructions ( Convexhull Fitting and Circle Fitting ) ----------
 
 #Single Stem Fullslice Fitting for demonstration
-Fitted_CirclePratt<-fit_circle(stems[1,],method='Pratt') 
-Fitted_CircleLM<-fit_circle(stems[1,],method='LM') 
-Fitted_Ransac_Circles<-fit_RANSAC(stems[90,],thresh = .5,.95,.5)
+Fitted_ConvHull<-fit_convhull(stems[886,],plot=TRUE)
+Fitted_CirclePratt<-fit_circle(stems[886,],method='Pratt',plot=TRUE) 
+Fitted_CircleLM<-fit_circle(stems[886,],method='LM',plot=TRUE) 
+Fitted_Ransac_Circles<-fit_RANSAC(stems[886,],thresh = .5,.95,.5,plot=TRUE)
 
 #Multislice Fitting (Needs "vertical profile ggplot)
 stems$ConvH<-multislice_process(stems,fit_convhull) #Convex Hull approach
-
 stems$Circle_Pratt<-multislice_process(stems,fit_circle,"Pratt")#Pratt Circle Fit
-
 stems$Circle_LM<-multislice_process(stems,fit_circle,"LM")#Reduced Levenberg-Marquardt Method
 
 #RANSAC Fitting
@@ -112,22 +117,26 @@ if(!file.exists("Processed_Data/Exported_GTruth_Data.shp")){
 ##### Stat. Analyses
 source("Scripts/Stats_Outputs.R")
 
-Matched_Stems<-read.csv("Processed_Data/Manually_Matched_Trees_Dataset_AllStems.csv")%>% #If manually matched
+Matched_Stems<-read.csv("Processed_Data/Manually_Matched_Trees_Dataset_AllStems_run2.csv")%>% #If manually matched
   filter(Confidence>1)
-Matched_Stems<-data.frame(matched_stems)#If automatically matched
+#Matched_Stems<-data.frame(matched_stems)#If automatically matched
 
 #Methods to check
 measures<-list("ConvH","Circle_Pratt","Circle_LM","Circle_RANSAC")
 
 #General Statistics (MAE, RMSE, Pearson's Correlation, Total Detection, etc. )
-stats<-basic_stats(cliptruth,stems_spdf,Matched_Stems,measures)
+stats<-basic_stats(Clipped.GTruth,stems_spdf,Matched_Stems,measures)
+
+#Remove Excesive noise >1.5x the max known gtruth
+Matched_Stems<-Matched_Stems%>%
+  filter_at(vars(!!!syms(measures)),~.<max(Clipped.GTruth$dbh_cm)*1.5)#filters at all columns in the 'measures' list
 
 #General Regressions
-plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$ConvH)
-plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$Circle_Pratt)
-plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$Circle_LM)
-plot_regression(Matched_Stems$Gtruth_dbh_cm,Matched_Stems$Circle_RANSAC)
-
+p1<-plot_regression(Matched_Stems,"Gtruth_dbh_cm","ConvH")
+p2<-plot_regression(Matched_Stems,"Gtruth_dbh_cm","Circle_Pratt")
+p3<-plot_regression(Matched_Stems,"Gtruth_dbh_cm","Circle_LM")
+p4<-plot_regression(Matched_Stems,"Gtruth_dbh_cm","Circle_RANSAC")
+wrap_plots(p1,p2,p3,p4)
 #General Statistics
 
 statdf<-data.frame(DBH=Matched_Stems$Gtruth_dbh_cm,
@@ -137,22 +146,43 @@ statdf<-data.frame(DBH=Matched_Stems$Gtruth_dbh_cm,
                    RANSAC=Matched_Stems$Circle_RANSAC)%>%
   mutate(bin=cut_width(DBH,width=10,boundary=0))
 
+#Detection Plots
+plot_detected(Clipped.GTruth,Matched_Stems,width=10,plot_percentages=TRUE)
+
 #BIAS Boxplots
+Biases<-calc_bias(statdf,10,RemoveBinsUnder=10,plot=TRUE,plot_stacked=TRUE)
 
-Biases<-calc_bias(statdf,10,plot=TRUE)
-
-#MAE Plots
+#MAE Plot
 MAEs<-calc_MAE(statdf,plot=TRUE)
 
+#MAPE Plot
+MAPEs<-calc_MAPE(statdf,plot=TRUE)
 
 
+#TestArea Results (Recalc / reclip the matched stems to only include those in the test area)
+TestArea_Truthdf<-cliptruth%>%
+  intersect(testarea)%>%
+  data.frame()
+TestArea_MatchedStems<-Matched_Stems%>%
+  dplyr::filter(Gtruth_tag%in%TestArea_Truthdf$tag)%>%
+  dplyr::filter(Confidence>1)
 
-#extra binned count histograms (not working yet)
-temphistdat<-as.data.frame(matched_stems)
-bucket<-list(chull_dbh=temphistdat$chull_dbh_cm,truth_dbh=temphistdat$dbh_cm)
-p2<-ggplot(melt(bucket),aes(value,fill=L1))+
-  geom_histogram(position="stack",binwidth=10)
-p2
+TestArea_stats<-basic_stats(cliptruth%>%intersect(testarea),stems_spdf%>%intersect(testarea),TestArea_MatchedStems,measures)
 
-tab<-table(temphistdat$dbh_cm,temphistdat$chull_dbh_cm)
-barplot(tab)
+pTA1<-plot_regression(TestArea_MatchedStems,"Gtruth_dbh_cm","ConvH")
+pTA2<-plot_regression(TestArea_MatchedStems,"Gtruth_dbh_cm","Circle_Pratt")
+pTA3<-plot_regression(TestArea_MatchedStems,"Gtruth_dbh_cm","Circle_LM")
+pTA4<-plot_regression(TestArea_MatchedStems,"Gtruth_dbh_cm","Circle_RANSAC")
+wrap_plots(pTA1,pTA2,pTA3,pTA4)
+
+statdf2<-data.frame(DBH=TestArea_MatchedStems$Gtruth_dbh_cm,
+                    ConvH=TestArea_MatchedStems$ConvH,
+                    Pratt=TestArea_MatchedStems$Circle_Pratt,
+                    LM=TestArea_MatchedStems$Circle_LM,
+                    RANSAC=TestArea_MatchedStems$Circle_RANSAC)%>%
+  mutate(bin=cut_width(DBH,width=10,boundary=0))
+
+plot_detected(cliptruth%>%intersect(testarea),TestArea_MatchedStems,width=10,plot_percentages=TRUE)
+calc_bias(statdf2,10,plot=TRUE,plot_stacked=TRUE)
+calc_MAE(statdf2,plot=TRUE)
+calc_MAPE(statdf2,plot=TRUE)
