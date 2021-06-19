@@ -37,7 +37,7 @@ basic_stats<-function(GTruth,Stems,Matched_stems,Measurement_ls){
       "\n Total stem IDs not detected:",nrow(GTruth[GTruth$stemID%!in%Matched_stems$Gtruth_stemID,]),
       "\n Total stems detected (With False Positives):",nrow(Stems),
       "\n Total stems matched:",nrow(Matched_stems),
-      "\n Total stems matched & detected (absolute):",nrow(GTruth[GTruth$stemID%in%Matched_stems$Gtruth_stemID,]),
+      "\n Total stems matched & detected (absolute):",nrow(GTruth[GTruth$tag%in%Matched_stems$Gtruth_tag,]),
       "\n Number of excessively noisey stems >1.5x the max dbh in the gtruth: ",sum(rowSums(Matched_stems[,7:10]>max(GTruth$dbh_cm)*1.5)),"\n",
       
       "\n ** Note, the number of stems may not add up due to the inclusion of duplicate stemIDs...",
@@ -55,12 +55,12 @@ plot_detected<-function(GTruth,Matched_Stems,width=10,plot_totals=FALSE,plot_per
     p<-ggplot(presencedf,aes(dbh_cm,fill=factor(detected)))+
       geom_histogram(binwidth=width)+
       stat_bin(
-        aes(label=ifelse(..count..>width,
+        aes(label=ifelse(..count..>width*.2,
                          paste(round((..count../tapply(..count..,..x..,sum)[as.character(..x..)]),3)*100,'%')
                          ,''),group=factor(detected),fill=factor(detected)),
         geom="label_repel",direction='y',force=0,alpha=.8,binwidth=width, show.legend=FALSE)+ #Percentage per bin per class factor
-      #stat_bin(data=presencedf%>%filter(detected==0),aes(y=min(..count..)-5,label=..count..),
-               #geom="label",position='identity',binwidth=width,fill='white')+ #Total number detected & matched stems per column
+      stat_bin(data=presencedf%>%filter(detected==1),aes(y=min(..count..)-5,label=..count..),
+               geom="label",position='identity',binwidth=width,fill='white')+ #Total number detected & matched stems per column
       #expand_limits(y=-10)+
       labs(title="Stem Detection Rates",x="DBH",y="Number of Stems Accuratly Matched")+
            #caption=paste('Total Accuratley Matched: ',nrow(Matched_Stems),'/',nrow(GTruth)))+
@@ -148,8 +148,8 @@ calc_bias<-function(statframe,binwidth,RemoveBinsUnder=10,plot=FALSE,plot_stacke
     plotlist=sapply(names(biasdf)[-grep("bin",names(biasdf))], function(col){ #loops through available columns in above biasdf
       ggplot(biasdf,aes_string(x="bin",y=col))+ #plot the current columns data
         geom_boxplot(outlier.shape = NA)+
-        geom_label(data=summstats,aes(x=bin,label=round(..y..,1)),size=3)+ #add a median value label to each bin...note '..y..' accesses the values in the current 'col' column
-        coord_cartesian(ylim=c(-110,80))+
+        geom_label(data=summstats,aes(x=bin,label=round(..y..,1)),nudge_y = 30,size=3)+ #add a median value label to each bin...note '..y..' accesses the values in the current 'col' column
+        coord_cartesian(ylim=c(-50,50))+
         labs(title=col,
              x="DBH (cm)",
              y="Bias (cm)")+
@@ -188,10 +188,22 @@ calc_MAE<-function(statdf,plot=FALSE){
     }
     MAE_df[[i-1]]=MAE
   }
-  MAE_df=mutate(MAE_df,bin=unique(statdf$bin))%>%
-    mutate(stepval=ceiling(seq(from=10,to=max(as.numeric(statdf[,1])),length.out=length(unique(statdf$bin)))))%>%
-    mutate_if(is.list,as.numeric)%>%
-    dplyr::select(-bin)
+  MAE_df=mutate(MAE_df,bin=as.character(unique(statdf$bin)))%>%
+    mutate(bin=gsub('\\(','',bin))%>%
+    mutate(bin=gsub('\\[|\\]','',bin))%>%
+    mutate(startbin=strsplit(bin,','), endbin=strsplit(bin,','))
+  for(i in 1:nrow(MAE_df)){
+    MAE_df$startbin[[i]]=as.numeric(MAE_df$startbin[[i]][1])
+    MAE_df$endbin[[i]]=as.numeric(MAE_df$endbin[[i]][2])
+  }
+  MAE_df=MAE_df%>%
+    mutate_if(is.list,as.numeric)
+  for(i in 1:nrow(MAE_df)){
+    MAE_df$bin[[i]]=mean(c(MAE_df$startbin[[i]],MAE_df$endbin[[i]]))
+  }
+  MAE_df=mutate(MAE_df,stepval=as.numeric(bin))%>%
+    arrange(startbin)%>%
+    dplyr::select(-bin,-startbin,-endbin)
   
   #Plot the MAE using GGPLOT
   if(plot){
@@ -225,21 +237,34 @@ calc_MAPE<-function(statdf,plot=FALSE){
     MAPE<-list() #A list of the MAE values for a specific measrument type to be populated by loop
     for(k in 1:length(MAPEbins)){ #loop through all bins
       tempdf<-filter(statdf,bin==MAPEbins[k])#Filter the input df to only include values of a specific bin at one time
-      MAPE[k]<-rmserr(tempdf$DBH,tempdf[,i])$mape #calc MAE
+      MAPE[k]<-rmserr(tempdf$DBH,tempdf[,i])$mape*100 #calc MAE
     }
     MAPE_df[[i-1]]=MAPE
   }
-  MAPE_df=mutate(MAPE_df,bin=unique(statdf$bin))%>%
-    mutate(stepval=ceiling(seq(from=10,to=max(as.numeric(statdf[,1])),length.out=length(unique(statdf$bin)))))%>%
-    mutate_if(is.list,as.numeric)%>%
-    dplyr::select(-bin)
+   MAPE_df=mutate(MAPE_df,bin=as.character(unique(statdf$bin)))%>%
+    mutate(bin=gsub('\\(','',bin))%>%
+    mutate(bin=gsub('\\[|\\]','',bin))%>%
+    mutate(startbin=strsplit(bin,','), endbin=strsplit(bin,','))
+  for(i in 1:nrow(MAPE_df)){
+    MAPE_df$startbin[[i]]=as.numeric(MAPE_df$startbin[[i]][1])
+    MAPE_df$endbin[[i]]=as.numeric(MAPE_df$endbin[[i]][2])
+  }
+  MAPE_df=MAPE_df%>%
+    mutate_if(is.list,as.numeric)
+  for(i in 1:nrow(MAPE_df)){
+    MAPE_df$bin[[i]]=mean(c(MAPE_df$startbin[[i]],MAPE_df$endbin[[i]]))
+  }
+  MAPE_df=mutate(MAPE_df,stepval=as.numeric(bin))%>%
+    arrange(startbin)%>%
+    dplyr::select(-bin,-startbin,-endbin)
+  
   
   #Plot the MAE using GGPLOT
   if(plot){
     Molten=reshape2::melt(MAPE_df,id.vars="stepval")
     MAPE_plot=ggplot(Molten,aes(x=stepval,y=value,colour=variable))+
       geom_smooth(method="loess",se=FALSE,formula=y~x)+
-      coord_cartesian(ylim=c(0,1.2))+
+      coord_cartesian(ylim=c(0,100))+
       xlab("DBH (cm)")+
       ylab("MAPE (%)")
     print(MAPE_plot)
