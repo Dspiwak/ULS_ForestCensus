@@ -16,10 +16,10 @@ conv_hulls<-function(clusters_df,plot=FALSE){
     Chull_Points<-SingleTree_Matrix[c(temp,temp[1]),]
     temp_df<-data.frame(Chull_Points)
     coordinates(temp_df)<-c("X1","X2")
-    crs(temp_df)<-SetCRS
+    crs(temp_df)<-NAD83_2011
     polylist[[i]]<-SpatialPolygons(list(Polygons(list(Polygon(Chull_Points)),ID=tempclusid)))
     cent1<-gCentroid(polylist[[i]])
-    crs(cent1)<-SetCRS
+    crs(cent1)<-NAD83_2011
     dist2cent<-list()
     dist2cent<-spDistsN1(Chull_Points,cent1,longlat=FALSE)#a method of dist calculation ##MEASURMENT WILL BE OFF BECAUSE REPEAT LAST POLY POINT IN CHULLPOINTS //BIAS IN MEAN CALC
     PPConvex[[i]]<-nrow(SingleTree_Points)
@@ -489,45 +489,86 @@ calc_arclength<-function(fouriercurve_df,polarcord_data){
   return(fourier_dbh)
 }
 
-multislice_process<-function(stems,method,...,numslice=7){
+PauTa<-function(vals){
+  #Calculates the PauTa Criterion ("3 sd" statistic) for outlier removal within a set of data
+  #Will return the mean of the subslices without outliers
+  #vals : a list of values from which the outliers will be removed and re-averaged
+
+  xbar=mean(vals)
+  stdev=sd(vals)
+  
+  for(i in 1:length(vals)){
+    abval=abs(vals[i]-xbar)
+    if(abval>3*stdev){
+      vals[i]=NA
+    }
+  }
+  
+  return(mean(vals,na.rm=TRUE))
+}
+
+Rosner<-function(vals){
+  #removes outliers using the RosnerTest
+  #returns a 'cleaned' dataset free of 2 largest outliers (change k=2 to a larger value if more potential for outliers)
+  
+  if(length(vals)>=4){ #ensures at least 4 measurements
+    dat=rosnerTest(vals,k=2,warn = FALSE)$all.stats%>% #assumes a maximum of 2 outliers and are ranked such that the first is the most likely outlier
+      dplyr::select(Value,Obs.Num,Outlier)%>%
+      dplyr::filter(Outlier==TRUE)
+    
+    if(nrow(dat)!=0){ #if there are outliers (ie more than 0 rows of data)
+      vals=vals[c(-dat$Obs.Num)] #remove outliers from dataset based on rosner results
+    }
+
+  }
+  return(vals) #return the cleaned dataset
+}
+
+multislice_process<-function(stems,method,...,NumSubSlices=7){
   #A function which will allow the user to define the number of slices with which the main slice should be divided into.
-  #This method will average the multiple slice diams together for each respective stem
+  #This method will generate "subplanes" and calculate a final diameter value based on the average of the subplanes
   #Minimum slice interval is 10cm
-  ave_diam=NA
+  
+  diams=data.frame(mean_diam=numeric(), #Dataframe to store everything
+                   median_diam=numeric(),
+                   PauTa_diam=numeric(),
+                   rosner_diam=numeric())
   
   for( i in 1:nrow(stems)){ #Loop through all stems passed to function
     
-    checkdiam=NA#Initialize a 'check' value to NA for while loop per-stem
-
-        while(is.na(checkdiam)){ #For each stem, run until returns not NA & reduces number of slices per run
+    checkNA=NA#Initialize a 'check' value for while loop
+    numslice=NumSubSlices
+    
+    while(is.na(checkNA)){ #For each stem, assess the check value and if it is NA then reloop and increase subplane thickness until not NA
       
-      sliceHbins=seq( round(min(stems[i,]$PointsInStem[[1]]$Z),1) , round(max(stems[i,]$PointsInStem[[1]]$Z),1) , length.out=numslice) #sequence of sub slice heights
+      sliceHbins=seq( round(min(stems[i,]$PointsInStem[[1]]$Z),1) , round(max(stems[i,]$PointsInStem[[1]]$Z),1) , length.out=numslice) #sequence of sub slice heights (larger lenth.out = thinner slices)
       stem_df<-data.frame('PointsInStem'=matrix(NA,ncol=1,nrow=1)) #temporary dataframe which holds subslice datapoints
       
-      diam_list=NA#temporary list of diameters to calculate average for the singular stem across multiple sub slices
+      diam_list=NA#temporary list of diameters to calculate averages from
       
-      for(k in 1:(numslice-1)){
-        #set a upper and lower bounds to filter out data to fulfill each subslice req. Z
+      for(k in 1:(numslice-1)){ #loop through the subslices
         lowerBounds=sliceHbins[[k]]
         upperBounds=sliceHbins[[k+1]]
         
-        stem_df$PointsInStem=list(filter(stems[i,]$PointsInStem[[1]],Z>=lowerBounds & Z<=upperBounds)) #get subslice of points for each tree
+        stem_df$PointsInStem=list(filter(stems[i,]$PointsInStem[[1]],Z>=lowerBounds & Z<=upperBounds)) #populate a temporary dataframe with the bounded data
         
         if(!is.null(stem_df$PointsInStem[[1]]$X) & nrow(stem_df$PointsInStem[[1]])>=4){ #Ensures that whatever method is being run will have at least 4 points per subslice to define a model
-          diam_list[[k]]=method(stem_df,...,)[[3]]
-        }else(diam_list[[k]]=NA)
+          diam_list[[k]]=method(stem_df,...,)[[3]] #calculates diameters using the desired method and gets the diameter column [[3]] from each of the methods as some have more than 1 return
+        }else(diam_list[[k]]=NA) #the diameter is NA if there are not enough points
       }
       
-      checkdiam=mean(diam_list,na.rm=TRUE) #check the mean diameter against loop diam
       
-      
-      if(is.na(checkdiam)){
+      if(is.na(mean(diam_list))){
+        checkNA=NA
         numslice=numslice-1
-      }else(ave_diam[[i]]=checkdiam)#append the average of the subslices to the list
+      }
+      else if(!is.na(mean(diam_list))){
+        diams[i,]=c(mean(diam_list),median(diam_list),PauTa(diam_list),mean(Rosner(diam_list)))#append the average of the subslices to the list
+        checkNA=FALSE
+      } 
+             
       
     }
   }
-  return(ave_diam)
+  return(diams)
 }
-
-
