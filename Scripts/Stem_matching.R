@@ -148,11 +148,11 @@ conv2_spdf<-function(stems){
   for(i in 1:nrow(stems)){
     tempcoords<-stems$PointsInStem[[i]] #get 1 row of data from 'stems' nested dataframe
     coordinates(tempcoords)<-c("X","Y")
-    crs(tempcoords)<-SetCRS
+    crs(tempcoords)<-NAD83_2011
     polylist[[i]]<-gConvexHull(tempcoords) #assign the convex hull as the shape of the polygon
   }
   polys<-do.call(bind,polylist)#bind the list to a 'SpatialPolygons' which is digestible to the next line
-  tempspdf<-SpatialPolygonsDataFrame(polys,data=stems%>%select(-PointsInStem)%>%mutate(StemID=as.numeric(StemID))) #create the SPDF and bring in the additional columns
+  tempspdf<-SpatialPolygonsDataFrame(polys,data=stems%>%dplyr::select(-PointsInStem)%>%mutate(StemID=as.numeric(StemID))) #create the SPDF and bring in the additional columns
   
   return(tempspdf)
 }
