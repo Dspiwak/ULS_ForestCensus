@@ -44,6 +44,15 @@ basic_stats<-function(GTruth,Stems,Matched_stems,Measurement_ls){
       "\n ** However, it may be undesirable to remove these due to detection of shared treeID values where the stem tag may differ",
       "\n ** Furthermore, assess possibility for 'double matching' to occur ")
   
+  cat("\n")
+  
+  for(i in 1:25){cat("-")}
+  cat("\n Average MAPE across all bins")
+  for(i in 2:(ncol(statdf)-1)){
+    cat("\n")
+    cat(paste0(names(statdf)[i],": ",round((rmserr(statdf$DBH,statdf[,i])$mape*100),2),"%"))
+    }
+  
   return(stat_dat)
 }
 
@@ -55,17 +64,18 @@ plot_detected<-function(GTruth,Matched_Stems,width=10,plot_totals=FALSE,plot_per
     p<-ggplot(presencedf,aes(dbh_cm,fill=factor(detected)))+
       geom_histogram(binwidth=width)+
       stat_bin(
-        aes(label=ifelse(..count..>width*.2,
+        aes(label=ifelse(..count..>width*.1,
                          paste(round((..count../tapply(..count..,..x..,sum)[as.character(..x..)]),3)*100,'%')
                          ,''),group=factor(detected),fill=factor(detected)),
         geom="label_repel",direction='y',force=0,alpha=.8,binwidth=width, show.legend=FALSE)+ #Percentage per bin per class factor
-      stat_bin(data=presencedf%>%filter(detected==1),aes(y=min(..count..)-5,label=..count..),
-               geom="label",position='identity',binwidth=width,fill='white')+ #Total number detected & matched stems per column
-      #expand_limits(y=-10)+
+      #stat_bin(data=presencedf%>%filter(detected==1),aes(y=min(..count..)-5,label=..count..),
+               #geom="label",position='identity',binwidth=width,fill='white')+ #Total number detected & matched stems per column
+      theme(text=element_text(size=16))+
       labs(title="Stem Detection Rates",x="DBH",y="Number of Stems Accuratly Matched")+
            #caption=paste('Total Accuratley Matched: ',nrow(Matched_Stems),'/',nrow(GTruth)))+
       guides(fill=guide_legend(title="Detection Status"))+
-      scale_fill_discrete(labels=c("Missing","Present & Matched"))
+      scale_fill_discrete(labels=c("Missing","Present & Matched"))+
+      scale_x_continuous(breaks=seq(0,max(presencedf$dbh_cm)+width,width))
   }
 
   if(plot_totals){
@@ -94,6 +104,7 @@ plot_regression<-function(df,x,y,GTruth=NULL){
     stat_cor(method='pearson',label.x.npc="left",label.y.npc="top")+ #add pearson's correlation coef. and p-val
     stat_poly_eq(aes(label=paste(..rr.label..,..eq.label..,sep="~~~")),
                  label.x.npc="left",label.y.npc=.9,formula=y~x,parse=TRUE)+ #add r2 and linreg line eq vals #https://stackoverflow.com/questions/37494969
+    theme(text=element_text(size=16))+
     labs(title=paste0("Reconstruction Method: ",lab_str))+
     xlab("True DBH (cm)")+
     ylab("Predicted DBH (cm)")
@@ -153,7 +164,7 @@ calc_bias<-function(statframe,binwidth,RemoveBinsUnder=10,plot=FALSE,plot_stacke
         labs(title=col,
              x="DBH (cm)",
              y="Bias (cm)")+
-        theme(axis.text.x=element_text(angle=90))
+        theme(text=element_text(size=16),axis.text.x=element_text(angle=90))
     },simplify=FALSE)
     
     if(plot){ #plot columns individually
@@ -213,6 +224,8 @@ calc_MAE<-function(statdf,plot=FALSE){
       scale_x_continuous(breaks=seq(0,max(Molten$stepval),by=15),limits=c(0,max(Molten$stepval)))+
       scale_y_continuous(breaks=seq(0,max(Molten$stepval),by=15))+
       coord_equal(ratio=1)+
+      theme(text=element_text(size=16))+
+      guides(color=guide_legend(title="Method"))+
       xlab("DBH (cm)")+
       ylab("MAE (cm)")
     print(MAE_plot)
@@ -265,6 +278,8 @@ calc_MAPE<-function(statdf,plot=FALSE){
     MAPE_plot=ggplot(Molten,aes(x=stepval,y=value,colour=variable))+
       geom_smooth(method="loess",se=FALSE,formula=y~x)+
       coord_cartesian(ylim=c(0,100))+
+      theme(text=element_text(size=16))+
+      guides(color=guide_legend(title="Method"))+
       xlab("DBH (cm)")+
       ylab("MAPE (%)")
     print(MAPE_plot)
